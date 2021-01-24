@@ -1,4 +1,4 @@
-SOURCES = AMF.ml RTMP.ml
+SOURCES = AMF.ml IO.ml RTMP.ml
 RESULT = RTMP
 
 all: dncl
