@@ -25,9 +25,6 @@ let basic_header f ~chunk_type ~chunk_stream_id =
     write_byte f ((chunk_type lsl 6) + 0x111111);
     write_short f chunk_stream_id )
 
-let int32_byte n k =
-  Int32.to_int (Int32.logand (Int32.shift_right n (8 * k)) (Int32.of_int 0xff))
-
 let chunk_header0 f ~chunk_stream_id ~timestamp ~message_length ~message_type_id
     ~message_stream_id =
   basic_header f ~chunk_type:0 ~chunk_stream_id;
@@ -76,12 +73,12 @@ let set_chunk_size f n =
   Bytes.set s 3 (char_of_int (n land 0xff));
   control_message f 1 (Bytes.unsafe_to_string s)
 
-let abort_message f n = control_message f 2 (bytes_of_int32 n)
-let acknowledgement f n = control_message f 3 (bytes_of_int32 n)
-let window_acknowledgement_size f n = control_message f 5 (bytes_of_int32 n)
+let abort_message f n = control_message f 2 (bits_of_int32 n)
+let acknowledgement f n = control_message f 3 (bits_of_int32 n)
+let window_acknowledgement_size f n = control_message f 5 (bits_of_int32 n)
 
 let set_peer_bandwidth f n t =
-  let n = bytes_of_int32 n in
+  let n = bits_of_int32 n in
   let t = match t with `Hard -> 0 | `Soft -> 1 | `Dynamic -> 2 in
   let t = String.make 1 (char_of_int t) in
   control_message f 6 (n ^ t)

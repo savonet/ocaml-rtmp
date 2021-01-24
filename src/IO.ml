@@ -88,7 +88,7 @@ let read_int32_le f =
   done;
   !ans
 
-let bytes_of_int32 n =
+let bits_of_int32 n =
   let s = Bytes.create 4 in
   let set i k =
     Bytes.set s i
