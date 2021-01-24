@@ -1,5 +1,44 @@
 type t = Number of float | String of string | Object of (string * t) list
 
+let rec encode data =
+  let ans = ref [] in
+  let push s = ans := s :: !ans in
+  let byte n =
+    assert (0 <= n && n <= 0xff);
+    push (String.make 1 (char_of_int n)) in
+  let u16 n =
+    assert (0 <= n && n <= 0xffff);
+    byte (n lsr 8);
+    byte (n land 0xff)
+  in
+  let u64 n =
+    for i = 0 to 7 do
+      byte (Int64.to_int (Int64.logand (Int64.shift_right n ((7-i)*8)) (Int64.of_int 0xff)));
+    done
+  in
+  let string s =
+    u16 (String.length s);
+    push s
+  in
+  (
+    match data with
+    | Number x ->
+      byte 0x00;
+      u64 (Int64.bits_of_float x)
+    | String s ->
+      byte 0x02;
+      string s
+    | Object l ->
+      byte 0x03;
+      List.iter (fun (l,v) -> string l; push (encode v)) l;
+      string "";
+      byte 0x09
+  );
+  String.concat "" (List.rev !ans)
+
+let encode_list data =
+  String.concat "" (List.map encode data)
+
 let decode data =
   let i = ref 0 in
   let n = String.length data in
@@ -74,4 +113,3 @@ let rec to_string = function
     "{" ^ l ^ "}"
 
 let list_to_string l = String.concat ", " (List.map to_string l)
-

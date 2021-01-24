@@ -1,6 +1,14 @@
 (** I/O helper functions. *)
 
+let hex_of_string s =
+  let ans = ref "" in
+  for i = 0 to String.length s - 1 do
+    ans := Printf.sprintf "%s%02x " !ans (int_of_char s.[i])
+  done;
+  !ans
+
 let write f s =
+  (* Printf.printf "write: %s\n%!" (hex_of_string (Bytes.unsafe_to_string s)); *)
   let n = Bytes.length s in
   assert (Unix.write f s 0 n = n)
 
@@ -88,6 +96,10 @@ let read_int32_le f =
   done;
   !ans
 
+(** Conversion from/to bits. *)
+
+(* All encodings are big endian unless otherwise specified. *)
+
 let bits_of_int32 n =
   let s = Bytes.create 4 in
   let set i k =
@@ -101,3 +113,21 @@ let bits_of_int32 n =
   set 2 1;
   set 3 0;
   Bytes.unsafe_to_string s
+
+let int32_of_bits s =
+  assert (String.length s = 4);
+  let ans = ref Int64.zero in
+  for i = 0 to 3 do
+    let n = Int64.of_int (int_of_char (s.[i])) in
+    ans := Int64.add (Int64.shift_left !ans 8) n
+  done;
+  !ans
+
+let int64_of_bits s =
+  assert (String.length s = 8);
+  let ans = ref Int64.zero in
+  for i = 0 to 7 do
+    let n = Int64.of_int (int_of_char (s.[i])) in
+    ans := Int64.add (Int64.shift_left !ans 8) n
+  done;
+  !ans

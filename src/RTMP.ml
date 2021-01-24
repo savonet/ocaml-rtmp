@@ -2,6 +2,7 @@
    - https://www.adobe.com/devnet/rtmp.html
    - https://www.adobe.com/content/dam/acom/en/devnet/pdf/amf0-file-format-specification.pdf
    - https://www.adobe.com/content/dam/acom/en/devnet/pdf/amf-file-format-spec.pdf
+   - https://github.com/illuspas/Node-Media-Server/blob/master/node_rtmp_session.js
 *)
 
 (* A few general remarks:
@@ -15,7 +16,7 @@ open IO
 
 let basic_header f ~chunk_type ~chunk_stream_id =
   assert (0 <= chunk_type && chunk_type < 4);
-  assert (3 <= chunk_stream_id && chunk_stream_id <= 65599);
+  assert (2 <= chunk_stream_id && chunk_stream_id <= 65599);
   if chunk_stream_id <= 63 then
     write_byte f ((chunk_type lsl 6) + chunk_stream_id)
   else if chunk_stream_id <= 319 then (
@@ -60,12 +61,19 @@ let chunk_header2 f ~chunk_stream_id ~timestamp_delta =
 let chunk_header3 f ~chunk_stream_id =
   basic_header f ~chunk_type:3 ~chunk_stream_id
 
-let control_message f message_stream_id payload =
+let control_message f message_type_id payload =
   chunk_header0 f ~chunk_stream_id:2 ~timestamp:Int32.zero
-    ~message_stream_id:(Int32.of_int 2) ~message_type_id:1
-    ~message_length:(String.length payload)
+    ~message_stream_id:Int32.zero ~message_type_id
+    ~message_length:(String.length payload);
+  write f (Bytes.unsafe_of_string payload)
+
+let user_control_mesage () =
+  chunk_header0
+    ~message_stream_id:Int32.zero ~message_type_id:4
 
 let set_chunk_size f n =
+  assert (1 <= n && n <= 0x7fffffff);
+  Printf.printf "Send set chunk size: %d\n%!" n;
   let s = Bytes.create 4 in
   Bytes.set s 0 (char_of_int ((n lsr 24) land 0xff));
   Bytes.set s 1 (char_of_int ((n lsr 16) land 0xff));
@@ -75,10 +83,13 @@ let set_chunk_size f n =
 
 let abort_message f n = control_message f 2 (bits_of_int32 n)
 let acknowledgement f n = control_message f 3 (bits_of_int32 n)
-let window_acknowledgement_size f n = control_message f 5 (bits_of_int32 n)
+let window_acknowledgement_size f n =
+  Printf.printf "Send window acknowledgement size: %d\n%!" n;
+  control_message f 5 (bits_of_int32 (Int32.of_int n))
 
 let set_peer_bandwidth f n t =
-  let n = bits_of_int32 n in
+  Printf.printf "Send set peer bandwidth: %d\n%!" n;
+  let n = bits_of_int32 (Int32.of_int n) in
   let t = match t with `Hard -> 0 | `Soft -> 1 | `Dynamic -> 2 in
   let t = String.make 1 (char_of_int t) in
   control_message f 6 (n ^ t)
@@ -163,7 +174,7 @@ let () =
     write s rand2;
     (* C1 *)
     let time = read_int32 s in
-    let zero = read_int32 s in
+    let (* zero *) _ = read_int32 s in
     let rand = read s 1528 in
     (* assert (zero = Int32.zero); *)
     Printf.printf "C1\n%!";
@@ -186,24 +197,35 @@ let () =
     let handle_message msg =
       let data = String.concat "" (List.rev msg.message_data) in
       match msg.message_type_id with
-        | 0x14 ->
-            Printf.printf "AMF0: %s\n%!" data;
-            for i = 0 to String.length data - 1 do
-              Printf.printf "%02x " (int_of_char data.[i])
-            done;
-            Printf.printf "\n%!";
-            let amf = AMF.decode data in
-            Printf.printf "%s\n%!" (AMF.list_to_string amf)
-        | _ -> assert false
+      | 0x01 ->
+        let n = int32_of_bits data in
+        Printf.printf "Got chunk size: %Ld\n%!" n
+      | 0x14 ->
+        Printf.printf "AMF0: %s\n%!" data;
+        Printf.printf "%s\n%!" (hex_of_string data);
+        let amf = AMF.decode data in
+        Printf.printf "%s\n%!" (AMF.list_to_string amf);
+        let amf = Array.of_list amf in
+        (
+          match amf.(0) with
+          | String "connect" ->
+            Printf.printf "Connecting...\n%!";
+            window_acknowledgement_size s 500000;
+            set_peer_bandwidth s 500000 `Dynamic;
+            set_chunk_size s max_chunk_size
+          | _ ->
+            Printf.printf "Unhandled AMF: %s\n%!" (AMF.to_string amf.(0))
+        )
+      | _ -> assert false
     in
     let handle_messages () =
       messages :=
         List.filter
           (fun msg ->
-            if msg.message_remaining = 0 then (
-              handle_message msg;
-              false )
-            else true)
+             if msg.message_remaining = 0 then (
+               handle_message msg;
+               false )
+             else true)
           !messages
     in
     while true do
@@ -222,44 +244,44 @@ let () =
       (* Message header *)
       ( match chunk_type with
         | 0 ->
-            let timestamp = read_int24 s in
-            let message_length = read_int24 s in
-            let message_type_id = read_byte s in
-            let message_stream_id = read_int32_le s in
-            let timestamp =
-              if timestamp = 0xffffff then read_int32 s
-              else Int32.of_int timestamp
-            in
-            Printf.printf "Timestamp: %d\n%!" (Int32.to_int timestamp);
-            Printf.printf "Message length: %d\n%!" message_length;
-            Printf.printf "Message type: %d (0x%x)\n%!" message_type_id
+          let timestamp = read_int24 s in
+          let message_length = read_int24 s in
+          let message_type_id = read_byte s in
+          let message_stream_id = read_int32_le s in
+          let timestamp =
+            if timestamp = 0xffffff then read_int32 s
+            else Int32.of_int timestamp
+          in
+          Printf.printf "Timestamp: %d\n%!" (Int32.to_int timestamp);
+          Printf.printf "Message length: %d\n%!" message_length;
+          Printf.printf "Message type: %d (0x%x)\n%!" message_type_id
+            message_type_id;
+          Printf.printf "Message stream: %d\n%!"
+            (Int32.to_int message_stream_id);
+          let data_length = min max_chunk_size message_length in
+          let data = read_string s data_length in
+          let msg =
+            {
+              message_chunk_stream_id = chunk_stream_id;
+              message_timestamp = timestamp;
               message_type_id;
-            Printf.printf "Message stream: %d\n%!"
-              (Int32.to_int message_stream_id);
-            let data_length = min max_chunk_size message_length in
-            let data = read_string s data_length in
-            let msg =
-              {
-                message_chunk_stream_id = chunk_stream_id;
-                message_timestamp = timestamp;
-                message_type_id;
-                message_stream_id;
-                message_data = [data];
-                message_remaining = message_length - data_length;
-              }
-            in
-            add_message msg
+              message_stream_id;
+              message_data = [data];
+              message_remaining = message_length - data_length;
+            }
+          in
+          add_message msg
         | 3 ->
-            let msg = find_message chunk_stream_id in
-            let remaining = msg.message_remaining in
-            let data_length = min max_chunk_size remaining in
-            Printf.printf "read %d\n%!" data_length;
-            let data = read_string s data_length in
-            msg.message_data <- data :: msg.message_data;
-            msg.message_remaining <- msg.message_remaining - data_length
+          let msg = find_message chunk_stream_id in
+          let remaining = msg.message_remaining in
+          let data_length = min max_chunk_size remaining in
+          Printf.printf "read %d\n%!" data_length;
+          let data = read_string s data_length in
+          msg.message_data <- data :: msg.message_data;
+          msg.message_remaining <- msg.message_remaining - data_length
         | _ -> assert false );
       handle_messages ()
     done;
     Printf.printf "Done with connection\n%!";
-    exit 0
+    ignore (exit 0)
   done
