@@ -1,5 +1,8 @@
-type t = Number of float | String of string | Object of (string * t) list
+type t = Number of float | String of string | Object of (string * t) list | Null
 
+let get_number = function Number x -> x | _ -> assert false
+
+(** Encode AMF value. *)
 let rec encode data =
   let ans = ref [] in
   let push s = ans := s :: !ans in
@@ -28,6 +31,8 @@ let rec encode data =
     | String s ->
       byte 0x02;
       string s
+    | Null ->
+      byte 0x05
     | Object l ->
       byte 0x03;
       List.iter (fun (l,v) -> string l; push (encode v)) l;
@@ -39,6 +44,7 @@ let rec encode data =
 let encode_list data =
   String.concat "" (List.map encode data)
 
+(** Decode AMF value. *)
 let decode data =
   let i = ref 0 in
   let n = String.length data in
@@ -89,6 +95,8 @@ let decode data =
       done;
       assert (byte () = 0x09);
       Object (List.rev !ans)
+    | 0x05 ->
+      Null
     | b ->
       Printf.printf "***** Unknown AMF 0x%02x\n%!" b;
       raise Exit
@@ -111,5 +119,6 @@ let rec to_string = function
       |> String.concat ", "
     in
     "{" ^ l ^ "}"
+  | Null -> "null"
 
 let list_to_string l = String.concat ", " (List.map to_string l)
