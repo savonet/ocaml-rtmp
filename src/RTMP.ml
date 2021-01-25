@@ -221,6 +221,10 @@ let () =
         let n = int32_of_bits data in
         Printf.printf "Got chunk size: %ld\n%!" n;
         cnx.chunk_size <- Int32.to_int n
+      | 0x12 ->
+        Printf.printf "Data: %s\n%!" data;
+        let amf = AMF.decode data in
+        Printf.printf "%s\n%!" (AMF.list_to_string amf)
       | 0x14 ->
         Printf.printf "AMF0: %s\n%!" data;
         Printf.printf "%s\n%!" (hex_of_string data);
@@ -247,7 +251,8 @@ let () =
             let name = AMF.get_string amf.(3) in
             let kind = AMF.get_string amf.(4) in
             let stream_id = 0 in
-            stream_begin cnx.socket (Int32.of_int stream_id)
+            command s ~message_stream_id:Int32.zero "onStatus" tid [AMF.Null; AMF.Object ["level", AMF.String "status"; "code", AMF.String "NetStream.Publish.Start"; "descritpion", AMF.String ("Publishing stream " ^ name)]]
+            (* stream_begin cnx.socket (Int32.of_int stream_id) *)
           | _ ->
             Printf.printf "Unhandled AMF: %s\n%!" (AMF.to_string amf.(0))
         )

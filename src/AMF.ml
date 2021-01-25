@@ -1,10 +1,24 @@
-type t = Number of float | String of string | Object of (string * t) list | Null
+type t = Number of float | String of string | Object of (string * t) list | Map of (string * t) list | Null
 
 let get_number = function Number x -> x | _ -> assert false
 
 let get_int v = int_of_float (get_number v)
 
 let get_string = function String s -> s | _ -> assert false
+
+(** String representation of a value (for debugging purposes). *)
+let rec to_string = function
+  | Number n -> Printf.sprintf "%f" n
+  | String s -> "\"" ^ s ^ "\""
+  | Object l ->
+    let l = List.map (fun (l, v) -> l ^ ": " ^ to_string v) l |> String.concat ", " in
+    "{" ^ l ^ "}"
+  | Map l ->
+    let l = List.map (fun (l, v) -> l ^ " => " ^ to_string v) l |> String.concat ", " in
+    "{" ^ l ^ "}"
+  | Null -> "null"
+
+let list_to_string l = String.concat ", " (List.map to_string l)
 
 (** Encode AMF value. *)
 let rec encode data =
@@ -62,6 +76,13 @@ let decode data =
     let b0 = byte () in
     (b1 lsl 8) + b0
   in
+  let u32 () =
+    let n = ref Int32.zero in
+    for _ = 0 to 3 do
+      n := Int32.add (Int32.shift_left !n 8) (Int32.of_int (byte ()))
+    done;
+    !n
+  in
   let u64 () =
     let n = ref Int64.zero in
     for _ = 0 to 7 do
@@ -101,28 +122,26 @@ let decode data =
       Object (List.rev !ans)
     | 0x05 ->
       Null
+    | 0x08 ->
+      let n = Int32.to_int (u32 ()) in
+      let l =
+        List.init n (fun _ ->
+            let s = string () in
+            let v = value () in
+            s, v)
+      in
+      assert (string () = "");
+      Map l
     | b ->
       Printf.printf "***** Unknown AMF 0x%02x\n%!" b;
       raise Exit
   in
   let ans = ref [] in
-  ( try
+  (
+    try
       while !i <> n do
         ans := value () :: !ans
       done
-    with Exit -> () );
+    with Exit -> ()
+  );
   List.rev !ans
-
-(** String representation of a value (for debugging purposes). *)
-let rec to_string = function
-  | Number n -> Printf.sprintf "%f" n
-  | String s -> "\"" ^ s ^ "\""
-  | Object l ->
-    let l =
-      List.map (fun (l, v) -> l ^ ": " ^ to_string v) l
-      |> String.concat ", "
-    in
-    "{" ^ l ^ "}"
-  | Null -> "null"
-
-let list_to_string l = String.concat ", " (List.map to_string l)
