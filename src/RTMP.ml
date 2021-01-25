@@ -12,8 +12,6 @@
 
 open IO
 
-(** Writing. *)
-
 (* Chunk streams id:
    - 2: protocol
    - 3: invoke
@@ -21,6 +19,8 @@ open IO
    - 5: video
    - 6: data
 *)
+
+(** Low-level functions. *)
 
 let basic_header f ~chunk_type ~chunk_stream_id =
   assert (0 <= chunk_type && chunk_type < 4);
@@ -67,11 +67,39 @@ let chunk_header2 f ~chunk_stream_id ~timestamp_delta =
 let chunk_header3 f ~chunk_stream_id =
   basic_header f ~chunk_type:3 ~chunk_stream_id
 
+let now () = Int32.of_float (Sys.time () *. 1000.)
+
+(** High-level functions. *)
+
+(** Parameters for a given connection. *)
+type connection =
+  {
+    socket : Unix.file_descr;
+    mutable chunk_size : int;
+    mutable last_timestamp : Int32.t;
+    mutable last_message_length : int;
+    mutable last_message_stream_id : Int32.t;
+  }
+
+let chunkify cnx ~chunk_stream_id ~timestamp ~message_type_id ~message_stream_id data =
+  let data = Bytes.unsafe_of_string data in
+  let message_length = Bytes.length data in
+  chunk_header0 cnx.socket ~chunk_stream_id ~timestamp ~message_length ~message_type_id ~message_stream_id;
+  let rem = message_length in
+  let len = min rem cnx.chunk_size in
+  assert (Unix.write cnx.socket data 0 len = len);
+  let rem = ref (rem - len) in
+  while !rem > 0 do
+    let len = min !rem cnx.chunk_size in
+    chunk_header3 cnx.socket ~chunk_stream_id;
+    assert (Unix.write cnx.socket data (message_length - !rem) len = len);
+    rem := !rem - len
+  done
+
 let control_message f message_type_id payload =
-  chunk_header0 f ~chunk_stream_id:2 ~timestamp:Int32.zero
-    ~message_stream_id:Int32.zero ~message_type_id
-    ~message_length:(String.length payload);
+  chunk_header0 f ~chunk_stream_id:2 ~timestamp:Int32.zero ~message_stream_id:Int32.zero ~message_type_id ~message_length:(String.length payload);
   write f (Bytes.unsafe_of_string payload)
+  (* chunkify f ~chunk_stream_id:2 ~timestamp:Int32.zero ~message_stream_id:Int32.zero ~message_type_id payload *)
 
 let set_chunk_size f n =
   assert (1 <= n && n <= 0x7fffffff);
@@ -141,16 +169,6 @@ let test () =
   (* S2 *)
   ignore (read s (4 + 4 + 1158))
 
-(** Parameters for a given connection. *)
-type connection =
-  {
-    socket : Unix.file_descr;
-    mutable chunk_size : int;
-    mutable last_timestamp : Int32.t;
-    mutable last_message_stream_id : Int32.t;
-
-  }
-
 type message = {
   message_chunk_stream_id : int;
   message_timestamp : Int32.t;
@@ -163,6 +181,7 @@ type message = {
 
 (** Local server. *)
 let () =
+  let dump = open_out "dump" in
   let socket = Unix.socket Unix.PF_INET Unix.SOCK_STREAM 0 in
   Unix.setsockopt socket Unix.SO_REUSEADDR true;
   Unix.bind socket (Unix.ADDR_INET (Unix.inet_addr_of_string "0.0.0.0", 1935));
@@ -172,7 +191,8 @@ let () =
       socket;
       chunk_size = 128;
       last_timestamp = Int32.zero;
-      last_message_stream_id = Int32.zero
+      last_message_stream_id = Int32.zero;
+      last_message_length = 0;
     }
   in
   while true do
@@ -186,7 +206,7 @@ let () =
     (* S0 *)
     write_byte s 3;
     (* S1 *)
-    let time2 = Int32.zero in
+    let time2 = (* now () *) Int32.zero in
     let rand2 = Bytes.create 1528 in
     write_int32 s time2;
     write_int32 s Int32.zero;
@@ -221,6 +241,9 @@ let () =
         let n = int32_of_bits data in
         Printf.printf "Got chunk size: %ld\n%!" n;
         cnx.chunk_size <- Int32.to_int n
+      | 0x09 ->
+        Printf.printf "Video message (%d bytes)\n%!" (String.length data);
+        output_string dump data
       | 0x12 ->
         Printf.printf "Data: %s\n%!" data;
         let amf = AMF.decode data in
@@ -245,6 +268,9 @@ let () =
             let tid = AMF.get_number amf.(1) in
             let stream_id = 0 in
             command s ~message_stream_id:Int32.zero "_result" tid [AMF.Null; AMF.Number (float_of_int stream_id)]
+          | "deleteStream" ->
+            Printf.printf "Deleting stream...\n%!";
+            close_out dump
           | "publish" ->
             Printf.printf "Publishing...\n%!";
             let tid = AMF.get_number amf.(1) in
@@ -293,6 +319,7 @@ let () =
             else Int32.of_int timestamp
           in
           cnx.last_timestamp <- timestamp;
+          cnx.last_message_length <- message_length;
           cnx.last_message_stream_id <- message_stream_id;
           Printf.printf "Timestamp: %d\n%!" (Int32.to_int timestamp);
           Printf.printf "Message length: %d\n%!" message_length;
@@ -321,6 +348,7 @@ let () =
           in
           let timestamp = Int32.add cnx.last_timestamp timestamp_delta in
           cnx.last_timestamp <- timestamp;
+          cnx.last_message_length <- message_length;
           Printf.printf "Timestamp delta: %d\n%!" (Int32.to_int timestamp_delta);
           Printf.printf "Message length: %d\n%!" message_length;
           Printf.printf "Message type: %d (0x%x)\n%!" message_type_id message_type_id;
@@ -337,6 +365,29 @@ let () =
             }
           in
           add_message msg
+        (*
+        | 2 ->
+          let timestamp_delta = read_int24 s in
+          let timestamp_delta =
+            if timestamp_delta = 0xffffff then read_int32 s
+            else Int32.of_int timestamp_delta
+          in
+          let timestamp = Int32.add cnx.last_timestamp timestamp_delta in
+          let message_type_id = cnx.la
+          let message_length = cnx.last_message_length in
+          cnx.last_timestamp <- timestamp;
+          let msg =
+            {
+              message_chunk_stream_id = chunk_stream_id;
+              message_timestamp = timestamp;
+              message_type_id;
+              message_stream_id = cnx.last_message_stream_id;
+              message_data = [data];
+              message_remaining = message_length - data_length;
+            }
+          in
+          add_message msg
+          *)
         | 3 ->
           let msg = find_message chunk_stream_id in
           let remaining = msg.message_remaining in
