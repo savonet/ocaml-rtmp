@@ -2,6 +2,10 @@ type t = Number of float | String of string | Object of (string * t) list | Null
 
 let get_number = function Number x -> x | _ -> assert false
 
+let get_int v = int_of_float (get_number v)
+
+let get_string = function String s -> s | _ -> assert false
+
 (** Encode AMF value. *)
 let rec encode data =
   let ans = ref [] in

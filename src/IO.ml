@@ -100,6 +100,13 @@ let read_int32_le f =
 
 (* All encodings are big endian unless otherwise specified. *)
 
+let bits_of_int16 n =
+  assert (0 <= n && n <= 0xffff);
+  let s = Bytes.create 2 in
+  Bytes.set s 0 (char_of_int (n lsr 8));
+  Bytes.set s 1 (char_of_int (n land 0xff));
+  Bytes.unsafe_to_string s
+
 let bits_of_int32 n =
   let s = Bytes.create 4 in
   let set i k =
@@ -116,10 +123,10 @@ let bits_of_int32 n =
 
 let int32_of_bits s =
   assert (String.length s = 4);
-  let ans = ref Int64.zero in
+  let ans = ref Int32.zero in
   for i = 0 to 3 do
-    let n = Int64.of_int (int_of_char (s.[i])) in
-    ans := Int64.add (Int64.shift_left !ans 8) n
+    let n = Int32.of_int (int_of_char (s.[i])) in
+    ans := Int32.add (Int32.shift_left !ans 8) n
   done;
   !ans
 
