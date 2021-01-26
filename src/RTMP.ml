@@ -67,13 +67,13 @@ let chunk_header2 f ~chunk_stream_id ~timestamp_delta =
 let chunk_header3 f ~chunk_stream_id =
   basic_header f ~chunk_type:3 ~chunk_stream_id
 
-let now () = Int32.of_float (Sys.time () *. 1000.)
-
 (** High-level functions. *)
 
 (** Parameters for a given connection. *)
 type connection =
   {
+    start_time : float;
+    last_time : float;
     socket : Unix.file_descr;
     mutable chunk_size : int;
     mutable last_timestamp : Int32.t;
@@ -81,6 +81,11 @@ type connection =
     mutable last_message_stream_id : Int32.t;
   }
 
+let now cnx = Int32.of_float ((Sys.time () -. cnx.start_time) *. 1000.)
+
+let delta cnx = Int32.of_float ((Sys.time () -. cnx.last_time) *. 1000.)
+
+(** Write a long message with chunks. *)
 let chunkify cnx ~chunk_stream_id ~timestamp ~message_type_id ~message_stream_id data =
   let data = Bytes.unsafe_of_string data in
   let message_length = Bytes.length data in
@@ -96,10 +101,11 @@ let chunkify cnx ~chunk_stream_id ~timestamp ~message_type_id ~message_stream_id
     rem := !rem - len
   done
 
-let control_message f message_type_id payload =
-  chunk_header0 f ~chunk_stream_id:2 ~timestamp:Int32.zero ~message_stream_id:Int32.zero ~message_type_id ~message_length:(String.length payload);
-  write f (Bytes.unsafe_of_string payload)
-  (* chunkify f ~chunk_stream_id:2 ~timestamp:Int32.zero ~message_stream_id:Int32.zero ~message_type_id payload *)
+let control_message cnx message_type_id payload =
+  let timestamp = now cnx in
+  assert (String.length payload <= cnx.chunk_size);
+  chunk_header0 cnx.socket ~chunk_stream_id:2 ~timestamp ~message_stream_id:Int32.zero ~message_type_id ~message_length:(String.length payload);
+  write cnx.socket (Bytes.unsafe_of_string payload)
 
 let set_chunk_size f n =
   assert (1 <= n && n <= 0x7fffffff);
@@ -115,9 +121,9 @@ let abort_message f n = control_message f 2 (bits_of_int32 n)
 
 let acknowledgement f n = control_message f 3 (bits_of_int32 n)
 
-let user_control f t data =
-  control_message f 4 (bits_of_int16 t);
-  write f (Bytes.unsafe_of_string data)
+let user_control cnx t data =
+  control_message cnx 4 (bits_of_int16 t);
+  write cnx.socket (Bytes.unsafe_of_string data)
 
 let stream_begin f stream_id = user_control f 0 (bits_of_int32 stream_id)
 let ping_request f timestamp = user_control f 6 (bits_of_int32 timestamp)
@@ -134,10 +140,12 @@ let set_peer_bandwidth f n t =
   let t = String.make 1 (char_of_int t) in
   control_message f 6 (n ^ t)
 
-let command f ~message_stream_id name transaction_id params =
+let command cnx ~message_stream_id name transaction_id params =
+  let timestamp = now cnx in
   let data = AMF.encode_list ([AMF.String name; AMF.Number transaction_id]@params) in
-  chunk_header0 f ~chunk_stream_id:3 ~timestamp:Int32.zero ~message_type_id:0x14 ~message_stream_id ~message_length:(String.length data);
-  write f (Bytes.unsafe_of_string data)
+  assert (String.length data <= cnx.chunk_size);
+  chunk_header0 cnx.socket ~chunk_stream_id:3 ~timestamp ~message_type_id:0x14 ~message_stream_id ~message_length:(String.length data);
+  write cnx.socket (Bytes.unsafe_of_string data)
 
 (* rtmp://a.rtmp.youtube.com/live2 *)
 let test () =
@@ -186,18 +194,21 @@ let () =
   Unix.setsockopt socket Unix.SO_REUSEADDR true;
   Unix.bind socket (Unix.ADDR_INET (Unix.inet_addr_of_string "0.0.0.0", 1935));
   Unix.listen socket 5;
-  let cnx =
-    {
-      socket;
-      chunk_size = 128;
-      last_timestamp = Int32.zero;
-      last_message_stream_id = Int32.zero;
-      last_message_length = 0;
-    }
-  in
+  let start_time = Sys.time () in
   while true do
     Printf.printf "Waiting for client\n%!";
-    let s, caller = Unix.accept cnx.socket in
+    let s, caller = Unix.accept socket in
+    let cnx =
+      {
+        socket = s;
+        start_time;
+        last_time = start_time;
+        chunk_size = 128;
+        last_timestamp = Int32.zero;
+        last_message_stream_id = Int32.zero;
+        last_message_length = 0;
+      }
+    in
     Printf.printf "Accepting connection!\n%!";
     (* C0 *)
     let c0 = read_byte s in
@@ -213,10 +224,10 @@ let () =
     write s rand2;
     (* C1 *)
     let time = read_int32 s in
-    let (* zero *) _ = read_int32 s in
+    let time2' = read_int32 s in (* should be zero *)
     let rand = read s 1528 in
-    (* assert (zero = Int32.zero); *)
-    Printf.printf "C1\n%!";
+    (* assert (time2' = Int32.zero); *)
+    Printf.printf "C1 (%ld, %ld)\n%!" time time2';
     (* S2 *)
     write_int32 s time2;
     write_int32 s time;
@@ -227,7 +238,7 @@ let () =
       Printf.printf "C2 time: %ld instead of %ld\n%!" time' time;
     assert (read_int32 s = time2);
     assert (read s 1528 = rand2);
-    Printf.printf "C2\n%!";
+    Printf.printf "C2 (%ld)\n%!" time';
     (* Let's go. *)
     let messages = ref [] in
     let add_message msg = messages := msg :: !messages in
@@ -258,16 +269,16 @@ let () =
           match AMF.get_string amf.(0) with
           | "connect" ->
             Printf.printf "Connecting...\n%!";
-            window_acknowledgement_size s 500000;
-            set_peer_bandwidth s 500000 `Dynamic;
-            set_chunk_size s cnx.chunk_size;
+            window_acknowledgement_size cnx 500000;
+            set_peer_bandwidth cnx 500000 `Dynamic;
+            set_chunk_size cnx cnx.chunk_size;
             let tid = AMF.get_number amf.(1) in
-            command s ~message_stream_id:Int32.zero "_result" tid [AMF.Object ["fmsVer", AMF.String "FMS/3,0,1,123"; "capabilities", AMF.Number 31.]]
+            command cnx ~message_stream_id:Int32.zero "_result" tid [AMF.Object ["fmsVer", AMF.String "FMS/3,0,1,123"; "capabilities", AMF.Number 31.]]
           | "createStream" ->
             Printf.printf "Creating stream...\n%!";
             let tid = AMF.get_number amf.(1) in
             let stream_id = 0 in
-            command s ~message_stream_id:Int32.zero "_result" tid [AMF.Null; AMF.Number (float_of_int stream_id)]
+            command cnx ~message_stream_id:Int32.zero "_result" tid [AMF.Null; AMF.Number (float_of_int stream_id)]
           | "deleteStream" ->
             Printf.printf "Deleting stream...\n%!";
             close_out dump
@@ -277,12 +288,12 @@ let () =
             let name = AMF.get_string amf.(3) in
             let kind = AMF.get_string amf.(4) in
             let stream_id = 0 in
-            command s ~message_stream_id:Int32.zero "onStatus" tid [AMF.Null; AMF.Object ["level", AMF.String "status"; "code", AMF.String "NetStream.Publish.Start"; "descritpion", AMF.String ("Publishing stream " ^ name)]]
+            command cnx ~message_stream_id:Int32.zero "onStatus" tid [AMF.Null; AMF.Object ["level", AMF.String "status"; "code", AMF.String "NetStream.Publish.Start"; "descritpion", AMF.String ("Publishing stream " ^ name)]]
             (* stream_begin cnx.socket (Int32.of_int stream_id) *)
           | _ ->
             Printf.printf "Unhandled AMF: %s\n%!" (AMF.to_string amf.(0))
         )
-      | _ -> assert false
+      | t -> Printf.printf "\nUnhandled message type 0x%02x\n%!" t; assert false
     in
     let handle_messages () =
       messages :=
