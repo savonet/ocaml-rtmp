@@ -107,6 +107,14 @@ let bits_of_int16 n =
   Bytes.set s 1 (char_of_int (n land 0xff));
   Bytes.unsafe_to_string s
 
+let bits_of_int24 n =
+  assert (0 <= n && n <= 0xffffff);
+  let s = Bytes.create 3 in
+  Bytes.set s 0 (char_of_int ((n lsr 16) land 0xff));
+  Bytes.set s 1 (char_of_int ((n lsr 8) land 0xff));
+  Bytes.set s 2 (char_of_int (n land 0xff));
+  Bytes.unsafe_to_string s
+
 let bits_of_int32 n =
   let s = Bytes.create 4 in
   let set i k =

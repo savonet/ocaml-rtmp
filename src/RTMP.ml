@@ -189,7 +189,10 @@ type message = {
 
 (** Local server. *)
 let () =
-  let dump = open_out "dump" in
+  let dump = open_out "dump.flv" in
+  output_string dump "FLV\x01";
+  output_string dump "\x01";
+  output_string dump (bits_of_int32 (Int32.of_int 9));
   let socket = Unix.socket Unix.PF_INET Unix.SOCK_STREAM 0 in
   Unix.setsockopt socket Unix.SO_REUSEADDR true;
   Unix.bind socket (Unix.ADDR_INET (Unix.inet_addr_of_string "0.0.0.0", 1935));
@@ -254,6 +257,14 @@ let () =
         cnx.chunk_size <- Int32.to_int n
       | 0x09 ->
         Printf.printf "Video message (%d bytes)\n%!" (String.length data);
+        output_string dump (bits_of_int32 Int32.zero); (* size of previous tag *)
+        (* output_string dump (bits_of_int32 Int32.zero); (\* size of previous tag *\) *)
+        output_string dump "\x09"; (* video *)
+        output_string dump (bits_of_int24 (String.length data));
+        output_string dump (bits_of_int24 (Int32.to_int (now cnx))); (* timestamp *)
+        (* output_string dump "\0x00"; (\* higher bit of timestamp *\) *)
+        (* output_string dump (bits_of_int24 0); (\* stream id, always 0 *\) *)
+        output_string dump "\x00\x00\x00\x00";
         output_string dump data
       | 0x12 ->
         Printf.printf "Data: %s\n%!" data;

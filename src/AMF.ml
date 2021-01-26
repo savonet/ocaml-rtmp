@@ -68,7 +68,7 @@ let decode data =
   let n = String.length data in
   let byte () =
     let x = int_of_char data.[!i] in
-    i := !i + 1;
+    incr i;
     x
   in
   let u16 () =
@@ -131,6 +131,7 @@ let decode data =
             s, v)
       in
       assert (string () = "");
+      if byte () <> 0x09 then decr i;
       Map l
     | b ->
       Printf.printf "***** Unknown AMF 0x%02x\n%!" b;
