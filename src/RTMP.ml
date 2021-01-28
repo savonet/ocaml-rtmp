@@ -79,6 +79,7 @@ type connection =
     mutable last_timestamp : Int32.t;
     mutable last_message_length : int;
     mutable last_message_stream_id : Int32.t;
+    mutable last_message_type_id : int;
   }
 
 let now cnx = Int32.of_float ((Sys.time () -. cnx.start_time) *. 1000.)
@@ -209,6 +210,7 @@ let () =
         chunk_size = 128;
         last_timestamp = Int32.zero;
         last_message_stream_id = Int32.zero;
+        last_message_type_id = 0;
         last_message_length = 0;
       }
     in
@@ -343,6 +345,7 @@ let () =
           cnx.last_timestamp <- timestamp;
           cnx.last_message_length <- message_length;
           cnx.last_message_stream_id <- message_stream_id;
+          cnx.last_message_type_id <- message_type_id;
           Printf.printf "Timestamp: %d\n%!" (Int32.to_int timestamp);
           Printf.printf "Message length: %d\n%!" message_length;
           Printf.printf "Message type: %d (0x%x)\n%!" message_type_id message_type_id;
@@ -371,6 +374,7 @@ let () =
           let timestamp = Int32.add cnx.last_timestamp timestamp_delta in
           cnx.last_timestamp <- timestamp;
           cnx.last_message_length <- message_length;
+          cnx.last_message_type_id <- message_type_id;
           Printf.printf "Timestamp delta: %d\n%!" (Int32.to_int timestamp_delta);
           Printf.printf "Message length: %d\n%!" message_length;
           Printf.printf "Message type: %d (0x%x)\n%!" message_type_id message_type_id;
@@ -387,7 +391,6 @@ let () =
             }
           in
           add_message msg
-        (*
         | 2 ->
           let timestamp_delta = read_int24 s in
           let timestamp_delta =
@@ -395,9 +398,12 @@ let () =
             else Int32.of_int timestamp_delta
           in
           let timestamp = Int32.add cnx.last_timestamp timestamp_delta in
-          let message_type_id = cnx.la
-          let message_length = cnx.last_message_length in
           cnx.last_timestamp <- timestamp;
+          Printf.printf "Timestamp delta: %d\n%!" (Int32.to_int timestamp_delta);
+          let message_type_id = cnx.last_message_type_id in
+          let message_length = cnx.last_message_length in
+          let data_length = min cnx.chunk_size message_length in
+          let data = read_string s data_length in
           let msg =
             {
               message_chunk_stream_id = chunk_stream_id;
@@ -409,7 +415,6 @@ let () =
             }
           in
           add_message msg
-          *)
         | 3 ->
           let msg = find_message chunk_stream_id in
           let remaining = msg.message_remaining in
