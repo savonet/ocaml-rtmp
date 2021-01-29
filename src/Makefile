@@ -2,10 +2,14 @@ SOURCES = AMF.ml IO.ml FLV.ml RTMP.ml
 RESULT = RTMP
 PACKS = unix
 
-all: dnc
+all: dncl server
 
 run: all
-	./RTMP
+	./server & $(MAKE) test
+
+# Build example files
+%: %.ml dncl
+	ocamlopt unix.cmxa RTMP.cmxa $< -o $@
 
 test:
 	ffmpeg -f lavfi -i testsrc=duration=10:size=1280x720:rate=30 -f flv rtmp:///localhost/myStream.sdp
