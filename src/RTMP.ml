@@ -444,8 +444,11 @@ let server () =
         FLV.write_video dump (now cnx) data;
       | `Command (_, `Delete_stream _) ->
         FLV.close_out dump
+      | `Data [AMF.String l; AMF.String "onMetaData"; AMF.Map m] ->
+        Printf.printf "matadata (%s): %s\n%!" l (AMF.to_string (AMF.Map m));
+        FLV.write_metadata dump m
       | `Data amf ->
-        Printf.printf "%s\n%!" (AMF.list_to_string amf)
+        Printf.printf "data: %s\n%!" (AMF.list_to_string amf)
     in
     Printf.printf "Accepting connection!\n%!";
     handshake cnx;

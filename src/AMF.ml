@@ -36,6 +36,11 @@ let rec encode data =
     byte (n lsr 8);
     byte (n land 0xff)
   in
+  let u32 n =
+    for i = 0 to 3 do
+      byte (Int32.to_int (Int32.logand (Int32.shift_right n ((7-i)*8)) (Int32.of_int 0xff)));
+    done
+  in
   let u64 n =
     for i = 0 to 7 do
       byte (Int64.to_int (Int64.logand (Int64.shift_right n ((7-i)*8)) (Int64.of_int 0xff)));
@@ -62,6 +67,7 @@ let rec encode data =
       byte 0x09
     | Map l ->
       byte 0x08;
+      u32 (Int32.of_int (List.length l));
       List.iter (fun (l,v) -> string l; push (encode v)) l;
       string "";
       byte 0x09

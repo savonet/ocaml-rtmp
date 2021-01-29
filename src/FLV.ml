@@ -20,18 +20,26 @@ let open_out ?(audio=true) ?(video=true) fname : t =
 
 let close_out f = close_out (oc f)
 
-let write_tag f t timestamp data =
+let write_tag f tag timestamp data =
   let oc = oc f in
   let s = pts f in
   output_string oc (bits_of_int32 (Int32.of_int !s)); (* size of previous tag *)
   s := 11 + String.length data;
-  output_string oc "\x09"; (* video *)
+  output_string oc (byte tag);
   output_string oc (bits_of_int24 (String.length data));
   output_string oc (bits_of_int24 (Int32.to_int timestamp)); (* timestamp *)
   (* output_string oc "\0x00"; (\* higher bit of timestamp *\) *)
   (* output_string oc (bits_of_int24 0); (\* stream id, always 0 *\) *)
   output_string oc "\x00\x00\x00\x00";
   output_string oc data
+
+let write_data f l =
+  let data = AMF.encode_list l in
+  write_tag f 18 Int32.zero data
+
+let write_metadata f l =
+  let l = [AMF.String "onMetaData"; AMF.Map l] in
+  write_data f l
 
 let write_audio f timestamp data = write_tag f 8 timestamp data
 
