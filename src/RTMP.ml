@@ -90,8 +90,10 @@ type connection =
     mutable last_message_length : int;
     mutable last_message_stream_id : Int32.t;
     mutable last_message_type_id : int;
+    mutable messages : message list;
   }
 
+(** Create a connection. *)
 let create_connection socket =
   {
     start_time = 0.;
@@ -102,10 +104,13 @@ let create_connection socket =
     last_message_length = 0;
     last_message_stream_id = Int32.zero;
     last_message_type_id = 0;
+    messages = [];
   }
 
+(** Current timestamp. *)
 let now cnx = Int32.of_float ((Sys.time () -. cnx.start_time) *. 1000.)
 
+(** Current timestamp delta. *)
 let delta cnx = Int32.of_float ((Sys.time () -. cnx.last_time) *. 1000.)
 
 (** Write a long message with chunks. *)
@@ -124,9 +129,10 @@ let chunkify cnx ~chunk_stream_id ~timestamp ~message_type_id ~message_stream_id
     rem := !rem - len
   done
 
+(** Send a control message. *)
 let control_message cnx message_type_id payload =
   let timestamp = now cnx in
-  assert (String.length payload <= cnx.chunk_size);
+  assert (String.length payload <= cnx.chunk_size); (* TODO *)
   chunk_header0 cnx.socket ~chunk_stream_id:2 ~timestamp ~message_stream_id:Int32.zero ~message_type_id ~message_length:(String.length payload);
   write cnx.socket (Bytes.unsafe_of_string payload)
 
@@ -144,8 +150,10 @@ let abort_message f n = control_message f 2 (bits_of_int32 n)
 
 let acknowledgement f n = control_message f 3 (bits_of_int32 n)
 
+(** Send a user control message. *)
 let user_control cnx t data =
   control_message cnx 4 (bits_of_int16 t);
+  assert (String.length data + 2 <= cnx.chunk_size); (* TODO *)
   write cnx.socket (Bytes.unsafe_of_string data)
 
 let stream_begin f stream_id = user_control f 0 (bits_of_int32 stream_id)
@@ -240,10 +248,9 @@ let server () =
     Printf.printf "Accepting connection!\n%!";
     handshake cnx;
     (* Let's go. *)
-    let messages = ref [] in
-    let add_message msg = messages := msg :: !messages in
+    let add_message msg = cnx.messages <- msg :: cnx.messages in
     let find_message cid =
-      List.find (fun msg -> msg.message_chunk_stream_id = cid) !messages
+      List.find (fun msg -> msg.message_chunk_stream_id = cid) cnx.messages
     in
     let handle_message msg =
       let data = String.concat "" (List.rev msg.message_data) in
@@ -304,14 +311,14 @@ let server () =
       | t -> Printf.printf "\nUnhandled message type 0x%02x\n%!" t; assert false
     in
     let handle_messages () =
-      messages :=
+      cnx.messages <-
         List.filter
           (fun msg ->
              if msg.message_remaining = 0 then (
                handle_message msg;
                false )
              else true)
-          !messages
+          cnx.messages
     in
     while true do
       Printf.printf "\n%!";
