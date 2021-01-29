@@ -11,6 +11,7 @@ let () =
   Printf.printf "done.\n%!";
   let cnx = RTMP.create_connection s in
   RTMP.handshake cnx;
+  Printf.printf "Handshake done.\n%!";
   let transaction_id =
     let n = ref 0 in
     fun () -> incr n; !n

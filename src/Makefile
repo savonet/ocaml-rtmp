@@ -4,6 +4,9 @@ PACKS = unix
 
 all: dncl server client
 
+c: client
+	./client
+
 run: all
 	./server & $(MAKE) test
 
