@@ -20,6 +20,8 @@ let () =
         FLV.write_metadata dump m
       | `Data amf ->
         Printf.printf "data: %s\n%!" (AMF.list_to_string amf)
+      | `Command (_, `Result amf) ->
+        Printf.printf "result\n%!"
     in
     Printf.printf "Accepting connection!\n%!";
     RTMP.handshake cnx;

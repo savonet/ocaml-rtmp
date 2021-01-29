@@ -175,9 +175,12 @@ let command cnx ?(message_stream_id=Int32.zero) name transaction_id params =
   Printf.printf "\nCOMMAND: %s\n%!" name;
   let timestamp = now cnx in
   let data = AMF.encode_list ([AMF.String name; AMF.int transaction_id]@params) in
+  (*
   assert (String.length data <= cnx.chunk_size);
   chunk_header0 cnx.socket ~chunk_stream_id:3 ~timestamp ~message_type_id:0x14 ~message_stream_id ~message_length:(String.length data);
   write cnx.socket (Bytes.unsafe_of_string data)
+  *)
+  chunkify cnx ~chunk_stream_id:3 ~timestamp ~message_type_id:0x14 ~message_stream_id data
 
 (** Perform handshake. *)
 let handshake cnx =
@@ -343,6 +346,13 @@ let handle_messages f cnx =
       let n = int32_of_bits data in
       Printf.printf "Got chunk size: %ld\n%!" n;
       cnx.chunk_size <- Int32.to_int n
+    | 0x05 ->
+      let n = int32_of_bits data in
+      Printf.printf "Got window ack: %ld\n%!" n
+    | 0x06 ->
+      let n = int32_of_bits (String.sub data 0 4) in
+      let t = int_of_char data.[4] in
+      Printf.printf "Peer bandwidth: %ld / %d\n%!" n t
     | 0x09 ->
       Printf.printf "Video message (%d bytes)\n%!" (String.length data);
       f (`Video data)
@@ -378,8 +388,12 @@ let handle_messages f cnx =
           let name = AMF.get_string amf.(3) in
           let kind = AMF.get_string amf.(4) in
           let stream_id = 0 in
-          command cnx ~message_stream_id:Int32.zero "onStatus" tid [AMF.Null; AMF.Object ["level", AMF.String "status"; "code", AMF.String "NetStream.Publish.Start"; "descritpion", AMF.String ("Publishing stream " ^ name)]]
+          command cnx ~message_stream_id:Int32.zero "onStatus" tid [AMF.Null; AMF.Object ["level", AMF.String "status"; "code", AMF.String "NetStream.Publish.Start"; "description", AMF.String ("Publishing stream " ^ name)]]
         (* stream_begin cnx.socket (Int32.of_int stream_id) *)
+        | "_result" ->
+          Printf.printf "Result\n%!";
+          let amf = Array.sub amf 2 (Array.length amf - 2) in
+          f (`Command (tid, `Result amf))
         | _ ->
           Printf.printf "Unhandled AMF: %s\n%!" (AMF.to_string amf.(0))
       )
@@ -393,3 +407,13 @@ let handle_messages f cnx =
            false )
          else true)
       cnx.messages
+
+let read_message cnx =
+  let m = ref [] in
+  let f ~timestamp ~stream msg = m := (timestamp, stream, msg) :: !m in
+  while !m = [] do
+    read_chunk cnx;
+    handle_messages f cnx
+  done;
+  assert (List.length !m = 1);
+  List.hd !m
