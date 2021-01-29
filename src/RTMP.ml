@@ -172,8 +172,9 @@ let set_peer_bandwidth f n t =
   control_message f 6 (n ^ t)
 
 let command cnx ?(message_stream_id=Int32.zero) name transaction_id params =
+  Printf.printf "\nCOMMAND: %s\n%!" name;
   let timestamp = now cnx in
-  let data = AMF.encode_list ([AMF.String name; AMF.Number transaction_id]@params) in
+  let data = AMF.encode_list ([AMF.String name; AMF.int transaction_id]@params) in
   assert (String.length data <= cnx.chunk_size);
   chunk_header0 cnx.socket ~chunk_stream_id:3 ~timestamp ~message_type_id:0x14 ~message_stream_id ~message_length:(String.length data);
   write cnx.socket (Bytes.unsafe_of_string data)
@@ -183,10 +184,6 @@ let handshake cnx =
   let s = cnx.socket in
   cnx.start_time <- Sys.time ();
   cnx.last_time <- cnx.start_time;
-  (* C0 *)
-  let c0 = read_byte s in
-  assert (c0 = 3);
-  Printf.printf "C0\n%!";
   (* S0 *)
   write_byte s 3;
   (* S1 *)
@@ -195,6 +192,10 @@ let handshake cnx =
   write_int32 s time2;
   write_int32 s Int32.zero;
   write s rand2;
+  (* C0 *)
+  let c0 = read_byte s in
+  assert (c0 = 3);
+  Printf.printf "C0\n%!";
   (* C1 *)
   let time = read_int32 s in
   let time2' = read_int32 s in (* should be zero *)
@@ -328,7 +329,7 @@ let read_chunk cnx =
 (** Read as many chunks as available. *)
 let read_chunks cnx =
   let s = cnx.socket in
-  while Unix.select [s] [] [] 0. <> ([], [], []) do
+  while Unix.select [s] [] [] 0.01 <> ([], [], []) do
     read_chunk cnx
   done
 
@@ -350,11 +351,12 @@ let handle_messages f cnx =
       let amf = AMF.decode data in
       f (`Data amf)
     | 0x14 ->
-      Printf.printf "AMF0: %s\n%!" data;
-      Printf.printf "%s\n%!" (hex_of_string data);
+      (* Printf.printf "AMF0: %s\n%!" data; *)
+      (* Printf.printf "%s\n%!" (hex_of_string data); *)
       let amf = AMF.decode data in
       Printf.printf "%s\n%!" (AMF.list_to_string amf);
       let amf = Array.of_list amf in
+      let tid = AMF.get_int amf.(1) in
       (
         match AMF.get_string amf.(0) with
         | "connect" ->
@@ -362,19 +364,17 @@ let handle_messages f cnx =
           window_acknowledgement_size cnx 500000;
           set_peer_bandwidth cnx 500000 `Dynamic;
           set_chunk_size cnx cnx.chunk_size;
-          let tid = AMF.get_number amf.(1) in
           command cnx ~message_stream_id:Int32.zero "_result" tid [AMF.Object ["fmsVer", AMF.String "FMS/3,0,1,123"; "capabilities", AMF.Number 31.]]
         | "createStream" ->
           Printf.printf "Creating stream...\n%!";
-          let tid = AMF.get_number amf.(1) in
           let stream_id = 0 in
           command cnx ~message_stream_id:Int32.zero "_result" tid [AMF.Null; AMF.Number (float_of_int stream_id)]
         | "deleteStream" ->
           Printf.printf "Deleting stream...\n%!";
-          f `Delete_stream
+          let n = AMF.get_int amf.(3) in
+          f (`Command (tid, `Delete_stream n))
         | "publish" ->
           Printf.printf "Publishing...\n%!";
-          let tid = AMF.get_number amf.(1) in
           let name = AMF.get_string amf.(3) in
           let kind = AMF.get_string amf.(4) in
           let stream_id = 0 in
@@ -401,25 +401,36 @@ let client () =
   let server = "a.rtmp.youtube.com" in
   let addr = Unix.gethostbyname server in
   let s = Unix.socket addr.Unix.h_addrtype Unix.SOCK_STREAM 0 in
+  Printf.printf "Connecting to %s... %!" server;
   Unix.connect s (Unix.ADDR_INET (addr.Unix.h_addr_list.(0), 1935));
+  Printf.printf "done.\n%!";
   let cnx = create_connection s in
   handshake cnx;
   let transaction_id =
     let n = ref 0 in
-    fun () -> incr n; float_of_int !n
+    fun () -> incr n; !n
+  in
+  let poll () =
+    read_chunks cnx;
+    let handler ~timestamp ~stream = function
+      | _ -> Printf.printf "unhandled message...\n%!"; assert false
+    in
+    handle_messages handler cnx
   in
   command cnx "connect" (transaction_id ()) [AMF.Object ["app", AMF.String "youtube"; "tcUrl", AMF.String url]];
+  poll ();
   command cnx "releaseStream" (transaction_id ()) [AMF.Null; AMF.String "live2"];
+  poll ();
   command cnx "FCPublish" (transaction_id ()) [AMF.Null; AMF.String "live2"];
+  poll ();
   command cnx "createStream" (transaction_id ()) [AMF.Null];
-  command cnx "publish" (transaction_id ()) [AMF.Null; AMF.String "live2"; AMF.String "live"]
+  poll ();
+  command cnx "publish" (transaction_id ()) [AMF.Null; AMF.String "live2"; AMF.String "live"];
+  poll ()
 
 (** Local server. *)
 let server () =
-  let dump = open_out "dump.flv" in
-  output_string dump "FLV\x01";
-  output_string dump "\x01";
-  output_string dump (bits_of_int32 (Int32.of_int 9));
+  let dump = FLV.open_out "dump.flv" in
   let socket = Unix.socket Unix.PF_INET Unix.SOCK_STREAM 0 in
   Unix.setsockopt socket Unix.SO_REUSEADDR true;
   Unix.bind socket (Unix.ADDR_INET (Unix.inet_addr_of_string "0.0.0.0", 1935));
@@ -430,16 +441,9 @@ let server () =
     let cnx = create_connection s in
     let handler ~timestamp ~stream = function
       | `Video data ->
-        output_string dump (bits_of_int32 Int32.zero); (* size of previous tag *)
-        output_string dump "\x09"; (* video *)
-        output_string dump (bits_of_int24 (String.length data));
-        output_string dump (bits_of_int24 (Int32.to_int (now cnx))); (* timestamp *)
-        (* output_string dump "\0x00"; (\* higher bit of timestamp *\) *)
-        (* output_string dump (bits_of_int24 0); (\* stream id, always 0 *\) *)
-        output_string dump "\x00\x00\x00\x00";
-        output_string dump data
-      | `Delete_stream ->
-        close_out dump
+        FLV.write_video dump (now cnx) data;
+      | `Command (_, `Delete_stream _) ->
+        FLV.close_out dump
       | `Data amf ->
         Printf.printf "%s\n%!" (AMF.list_to_string amf)
     in
@@ -454,5 +458,5 @@ let server () =
     ignore (exit 0)
   done
 
-let () =
-  server ()
+(* let () = client () *)
+let () = server ()

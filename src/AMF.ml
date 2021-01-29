@@ -1,8 +1,12 @@
+(** AMF0 *)
+
 type t = Number of float | String of string | Object of (string * t) list | Map of (string * t) list | Null
 
 let get_number = function Number x -> x | _ -> assert false
 
 let get_int v = int_of_float (get_number v)
+
+let int n = Number (float_of_int n)
 
 let get_string = function String s -> s | _ -> assert false
 
@@ -53,6 +57,11 @@ let rec encode data =
       byte 0x05
     | Object l ->
       byte 0x03;
+      List.iter (fun (l,v) -> string l; push (encode v)) l;
+      string "";
+      byte 0x09
+    | Map l ->
+      byte 0x08;
       List.iter (fun (l,v) -> string l; push (encode v)) l;
       string "";
       byte 0x09
@@ -112,7 +121,6 @@ let decode data =
       let ans = ref [] in
       (* Printf.printf "object: %s\n%!" (string ()); *)
       let l = ref (string ()) in
-      Printf.printf "label: %s\n%!" !l;
       while !l <> "" do
         let v = value () in
         ans := (!l, v) :: !ans;
@@ -131,18 +139,14 @@ let decode data =
             s, v)
       in
       assert (string () = "");
-      if byte () <> 0x09 then decr i;
+      assert (byte () = 0x09);
       Map l
     | b ->
       Printf.printf "***** Unknown AMF 0x%02x\n%!" b;
-      raise Exit
+      assert false
   in
   let ans = ref [] in
-  (
-    try
-      while !i <> n do
-        ans := value () :: !ans
-      done
-    with Exit -> ()
-  );
+  while !i <> n do
+    ans := value () :: !ans
+  done;
   List.rev !ans
