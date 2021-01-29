@@ -178,6 +178,7 @@ let command cnx ?(message_stream_id=Int32.zero) name transaction_id params =
   chunk_header0 cnx.socket ~chunk_stream_id:3 ~timestamp ~message_type_id:0x14 ~message_stream_id ~message_length:(String.length data);
   write cnx.socket (Bytes.unsafe_of_string data)
 
+(** Perform handshake. *)
 let handshake cnx =
   let s = cnx.socket in
   cnx.start_time <- Sys.time ();
@@ -211,6 +212,118 @@ let handshake cnx =
   assert (read_int32 s = time2);
   assert (read s 1528 = rand2);
   Printf.printf "C2 (%ld)\n%!" time'
+
+(** Read a chunk. *)
+let read_chunk cnx =
+  Printf.printf "\n%!";
+  let add_message msg = cnx.messages <- msg :: cnx.messages in
+  let find_message cid = List.find (fun msg -> msg.message_chunk_stream_id = cid) cnx.messages in
+  let s = cnx.socket in
+  (* Basic header *)
+  let basic = read_byte s in
+  let chunk_type = basic lsr 6 in
+  Printf.printf "Chunk type: %d\n%!" chunk_type;
+  let chunk_stream_id =
+    let n = basic land 0x3f in
+    if n = 0 then read_byte s + 64
+    else if n = 0x3f then read_short s + 64
+    else n
+  in
+  Printf.printf "Chunk stream id: %d\n%!" chunk_stream_id;
+  (* Message header *)
+  ( match chunk_type with
+    | 0 ->
+      let timestamp = read_int24 s in
+      let message_length = read_int24 s in
+      let message_type_id = read_byte s in
+      let message_stream_id = read_int32_le s in
+      let timestamp =
+        if timestamp = 0xffffff then read_int32 s
+        else Int32.of_int timestamp
+      in
+      cnx.last_timestamp <- timestamp;
+      cnx.last_message_length <- message_length;
+      cnx.last_message_stream_id <- message_stream_id;
+      cnx.last_message_type_id <- message_type_id;
+      Printf.printf "Timestamp: %d\n%!" (Int32.to_int timestamp);
+      Printf.printf "Message length: %d\n%!" message_length;
+      Printf.printf "Message type: %d (0x%x)\n%!" message_type_id message_type_id;
+      Printf.printf "Message stream: %d\n%!" (Int32.to_int message_stream_id);
+      let data_length = min cnx.chunk_size message_length in
+      let data = read_string s data_length in
+      let msg =
+        {
+          message_chunk_stream_id = chunk_stream_id;
+          message_timestamp = timestamp;
+          message_type_id;
+          message_stream_id;
+          message_data = [data];
+          message_remaining = message_length - data_length;
+        }
+      in
+      add_message msg
+    | 1 ->
+      let timestamp_delta = read_int24 s in
+      let message_length = read_int24 s in
+      let message_type_id = read_byte s in
+      let timestamp_delta =
+        if timestamp_delta = 0xffffff then read_int32 s
+        else Int32.of_int timestamp_delta
+      in
+      let timestamp = Int32.add cnx.last_timestamp timestamp_delta in
+      cnx.last_timestamp <- timestamp;
+      cnx.last_message_length <- message_length;
+      cnx.last_message_type_id <- message_type_id;
+      Printf.printf "Timestamp delta: %d\n%!" (Int32.to_int timestamp_delta);
+      Printf.printf "Message length: %d\n%!" message_length;
+      Printf.printf "Message type: %d (0x%x)\n%!" message_type_id message_type_id;
+      let data_length = min cnx.chunk_size message_length in
+      let data = read_string s data_length in
+      let msg =
+        {
+          message_chunk_stream_id = chunk_stream_id;
+          message_timestamp = timestamp;
+          message_type_id;
+          message_stream_id = cnx.last_message_stream_id;
+          message_data = [data];
+          message_remaining = message_length - data_length;
+        }
+      in
+      add_message msg
+    | 2 ->
+      let timestamp_delta = read_int24 s in
+      let timestamp_delta =
+        if timestamp_delta = 0xffffff then read_int32 s
+        else Int32.of_int timestamp_delta
+      in
+      let timestamp = Int32.add cnx.last_timestamp timestamp_delta in
+      cnx.last_timestamp <- timestamp;
+      Printf.printf "Timestamp delta: %d\n%!" (Int32.to_int timestamp_delta);
+      let message_type_id = cnx.last_message_type_id in
+      let message_length = cnx.last_message_length in
+      let data_length = min cnx.chunk_size message_length in
+      let data = read_string s data_length in
+      let msg =
+        {
+          message_chunk_stream_id = chunk_stream_id;
+          message_timestamp = timestamp;
+          message_type_id;
+          message_stream_id = cnx.last_message_stream_id;
+          message_data = [data];
+          message_remaining = message_length - data_length;
+        }
+      in
+      add_message msg
+    | 3 ->
+      let msg = find_message chunk_stream_id in
+      let remaining = msg.message_remaining in
+      let data_length = min cnx.chunk_size remaining in
+      Printf.printf "read %d\n%!" data_length;
+      let data = read_string s data_length in
+      msg.message_data <- data :: msg.message_data;
+      msg.message_remaining <- msg.message_remaining - data_length
+    | _ -> failwith ("TODO: Handle chunk type " ^ string_of_int chunk_type)
+  )
 
 let client () =
   Random.self_init ();
@@ -248,10 +361,6 @@ let server () =
     Printf.printf "Accepting connection!\n%!";
     handshake cnx;
     (* Let's go. *)
-    let add_message msg = cnx.messages <- msg :: cnx.messages in
-    let find_message cid =
-      List.find (fun msg -> msg.message_chunk_stream_id = cid) cnx.messages
-    in
     let handle_message msg =
       let data = String.concat "" (List.rev msg.message_data) in
       match msg.message_type_id with
@@ -321,112 +430,7 @@ let server () =
           cnx.messages
     in
     while true do
-      Printf.printf "\n%!";
-      (* Basic header *)
-      let basic = read_byte s in
-      let chunk_type = basic lsr 6 in
-      Printf.printf "Chunk type: %d\n%!" chunk_type;
-      let chunk_stream_id =
-        let n = basic land 0x3f in
-        if n = 0 then read_byte s + 64
-        else if n = 0x3f then read_short s + 64
-        else n
-      in
-      Printf.printf "Chunk stream id: %d\n%!" chunk_stream_id;
-      (* Message header *)
-      ( match chunk_type with
-        | 0 ->
-          let timestamp = read_int24 s in
-          let message_length = read_int24 s in
-          let message_type_id = read_byte s in
-          let message_stream_id = read_int32_le s in
-          let timestamp =
-            if timestamp = 0xffffff then read_int32 s
-            else Int32.of_int timestamp
-          in
-          cnx.last_timestamp <- timestamp;
-          cnx.last_message_length <- message_length;
-          cnx.last_message_stream_id <- message_stream_id;
-          cnx.last_message_type_id <- message_type_id;
-          Printf.printf "Timestamp: %d\n%!" (Int32.to_int timestamp);
-          Printf.printf "Message length: %d\n%!" message_length;
-          Printf.printf "Message type: %d (0x%x)\n%!" message_type_id message_type_id;
-          Printf.printf "Message stream: %d\n%!" (Int32.to_int message_stream_id);
-          let data_length = min cnx.chunk_size message_length in
-          let data = read_string s data_length in
-          let msg =
-            {
-              message_chunk_stream_id = chunk_stream_id;
-              message_timestamp = timestamp;
-              message_type_id;
-              message_stream_id;
-              message_data = [data];
-              message_remaining = message_length - data_length;
-            }
-          in
-          add_message msg
-        | 1 ->
-          let timestamp_delta = read_int24 s in
-          let message_length = read_int24 s in
-          let message_type_id = read_byte s in
-          let timestamp_delta =
-            if timestamp_delta = 0xffffff then read_int32 s
-            else Int32.of_int timestamp_delta
-          in
-          let timestamp = Int32.add cnx.last_timestamp timestamp_delta in
-          cnx.last_timestamp <- timestamp;
-          cnx.last_message_length <- message_length;
-          cnx.last_message_type_id <- message_type_id;
-          Printf.printf "Timestamp delta: %d\n%!" (Int32.to_int timestamp_delta);
-          Printf.printf "Message length: %d\n%!" message_length;
-          Printf.printf "Message type: %d (0x%x)\n%!" message_type_id message_type_id;
-          let data_length = min cnx.chunk_size message_length in
-          let data = read_string s data_length in
-          let msg =
-            {
-              message_chunk_stream_id = chunk_stream_id;
-              message_timestamp = timestamp;
-              message_type_id;
-              message_stream_id = cnx.last_message_stream_id;
-              message_data = [data];
-              message_remaining = message_length - data_length;
-            }
-          in
-          add_message msg
-        | 2 ->
-          let timestamp_delta = read_int24 s in
-          let timestamp_delta =
-            if timestamp_delta = 0xffffff then read_int32 s
-            else Int32.of_int timestamp_delta
-          in
-          let timestamp = Int32.add cnx.last_timestamp timestamp_delta in
-          cnx.last_timestamp <- timestamp;
-          Printf.printf "Timestamp delta: %d\n%!" (Int32.to_int timestamp_delta);
-          let message_type_id = cnx.last_message_type_id in
-          let message_length = cnx.last_message_length in
-          let data_length = min cnx.chunk_size message_length in
-          let data = read_string s data_length in
-          let msg =
-            {
-              message_chunk_stream_id = chunk_stream_id;
-              message_timestamp = timestamp;
-              message_type_id;
-              message_stream_id = cnx.last_message_stream_id;
-              message_data = [data];
-              message_remaining = message_length - data_length;
-            }
-          in
-          add_message msg
-        | 3 ->
-          let msg = find_message chunk_stream_id in
-          let remaining = msg.message_remaining in
-          let data_length = min cnx.chunk_size remaining in
-          Printf.printf "read %d\n%!" data_length;
-          let data = read_string s data_length in
-          msg.message_data <- data :: msg.message_data;
-          msg.message_remaining <- msg.message_remaining - data_length
-        | _ -> failwith ("TODO: Handle chunk type " ^ string_of_int chunk_type)
-      );
+      read_chunk cnx;
       handle_messages ()
     done;
     Printf.printf "Done with connection\n%!";
