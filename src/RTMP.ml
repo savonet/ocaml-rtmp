@@ -325,6 +325,17 @@ let read_chunk cnx =
     | _ -> failwith ("TODO: Handle chunk type " ^ string_of_int chunk_type)
   )
 
+(** Read as many chunks as available. *)
+let read_chunks cnx =
+  let s = cnx.socket in
+  while Unix.select [s] [] [] 0. <> ([], [], []) do
+    read_chunk cnx
+  done
+
+(** Handle pending completed messages. *)
+(* let handle_messages f cnx = *)
+
+(** Client. *)
 let client () =
   Random.self_init ();
   let url = "rtmp://a.rtmp.youtube.com/live2" in
