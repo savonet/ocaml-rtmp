@@ -69,17 +69,39 @@ let chunk_header3 f ~chunk_stream_id =
 
 (** High-level functions. *)
 
+(** A (partially received) message. *)
+type message = {
+  message_chunk_stream_id : int;
+  message_timestamp : Int32.t;
+  message_type_id : int;
+  message_stream_id : Int32.t;
+  mutable message_data : string list; (* Data in chunks, to be read from right to left (i.e. rev before concatenating). *)
+  mutable message_remaining : int; (* Bytes which remain to be fetched *)
+}
+
 (** Parameters for a given connection. *)
 type connection =
   {
-    start_time : float;
-    last_time : float;
+    mutable start_time : float;
+    mutable last_time : float;
     socket : Unix.file_descr;
     mutable chunk_size : int;
     mutable last_timestamp : Int32.t;
     mutable last_message_length : int;
     mutable last_message_stream_id : Int32.t;
     mutable last_message_type_id : int;
+  }
+
+let create_connection socket =
+  {
+    start_time = 0.;
+    last_time = 0.;
+    socket;
+    chunk_size = 128;
+    last_timestamp = Int32.zero;
+    last_message_length = 0;
+    last_message_stream_id = Int32.zero;
+    last_message_type_id = 0;
   }
 
 let now cnx = Int32.of_float ((Sys.time () -. cnx.start_time) *. 1000.)
@@ -141,55 +163,68 @@ let set_peer_bandwidth f n t =
   let t = String.make 1 (char_of_int t) in
   control_message f 6 (n ^ t)
 
-let command cnx ~message_stream_id name transaction_id params =
+let command cnx ?(message_stream_id=Int32.zero) name transaction_id params =
   let timestamp = now cnx in
   let data = AMF.encode_list ([AMF.String name; AMF.Number transaction_id]@params) in
   assert (String.length data <= cnx.chunk_size);
   chunk_header0 cnx.socket ~chunk_stream_id:3 ~timestamp ~message_type_id:0x14 ~message_stream_id ~message_length:(String.length data);
   write cnx.socket (Bytes.unsafe_of_string data)
 
-(* rtmp://a.rtmp.youtube.com/live2 *)
-let test () =
+let handshake cnx =
+  let s = cnx.socket in
+  cnx.start_time <- Sys.time ();
+  cnx.last_time <- cnx.start_time;
+  (* C0 *)
+  let c0 = read_byte s in
+  assert (c0 = 3);
+  Printf.printf "C0\n%!";
+  (* S0 *)
+  write_byte s 3;
+  (* S1 *)
+  let time2 = (* now cnx *) Int32.zero in
+  let rand2 = Bytes.create 1528 in
+  write_int32 s time2;
+  write_int32 s Int32.zero;
+  write s rand2;
+  (* C1 *)
+  let time = read_int32 s in
+  let time2' = read_int32 s in (* should be zero *)
+  let rand = read s 1528 in
+  (* assert (time2' = Int32.zero); *)
+  Printf.printf "C1 (%ld, %ld)\n%!" time time2';
+  (* S2 *)
+  write_int32 s time2;
+  write_int32 s time;
+  write s rand;
+  (* C2 *)
+  let time' = read_int32 s in
+  if time' <> time then
+    Printf.printf "C2 time: %ld instead of %ld\n%!" time' time;
+  assert (read_int32 s = time2);
+  assert (read s 1528 = rand2);
+  Printf.printf "C2 (%ld)\n%!" time'
+
+let client () =
   Random.self_init ();
+  let url = "rtmp://a.rtmp.youtube.com/live2" in
   let server = "a.rtmp.youtube.com" in
   let addr = Unix.gethostbyname server in
   let s = Unix.socket addr.Unix.h_addrtype Unix.SOCK_STREAM 0 in
   Unix.connect s (Unix.ADDR_INET (addr.Unix.h_addr_list.(0), 1935));
-  let time = Int32.zero in
-  (* time origin *)
-  (* C0 *)
-  write_byte s 3;
-  (* C1 *)
-  write_int32 s time;
-  write_int32 s Int32.zero;
-  for i = 0 to 1527 do
-    write_byte s (Random.int 256)
-  done;
-  (* S0 *)
-  assert (read_byte s = 3);
-  (* S1 *)
-  assert (read_int32 s = time);
-  let time2 = read_int32 s in
-  let rand = read s 1528 in
-  (* C2 *)
-  write_int32 s time;
-  write_int32 s time2;
-  write s rand;
-  (* S2 *)
-  ignore (read s (4 + 4 + 1158))
-
-type message = {
-  message_chunk_stream_id : int;
-  message_timestamp : Int32.t;
-  message_type_id : int;
-  message_stream_id : Int32.t;
-  mutable message_data : string list;
-  (* Data in chunks, to be read from right to left (i.e. rev before concatenating). *)
-  mutable message_remaining : int; (* Bytes which remain to be fetched *)
-}
+  let cnx = create_connection s in
+  handshake cnx;
+  let transaction_id =
+    let n = ref 0 in
+    fun () -> incr n; float_of_int !n
+  in
+  command cnx "connect" (transaction_id ()) [AMF.Object ["app", AMF.String "youtube"; "tcUrl", AMF.String url]];
+  command cnx "releaseStream" (transaction_id ()) [AMF.Null; AMF.String "live2"];
+  command cnx "FCPublish" (transaction_id ()) [AMF.Null; AMF.String "live2"];
+  command cnx "createStream" (transaction_id ()) [AMF.Null];
+  command cnx "publish" (transaction_id ()) [AMF.Null; AMF.String "live2"; AMF.String "live"]
 
 (** Local server. *)
-let () =
+let server () =
   let dump = open_out "dump.flv" in
   output_string dump "FLV\x01";
   output_string dump "\x01";
@@ -198,52 +233,12 @@ let () =
   Unix.setsockopt socket Unix.SO_REUSEADDR true;
   Unix.bind socket (Unix.ADDR_INET (Unix.inet_addr_of_string "0.0.0.0", 1935));
   Unix.listen socket 5;
-  let start_time = Sys.time () in
   while true do
     Printf.printf "Waiting for client\n%!";
     let s, caller = Unix.accept socket in
-    let cnx =
-      {
-        socket = s;
-        start_time;
-        last_time = start_time;
-        chunk_size = 128;
-        last_timestamp = Int32.zero;
-        last_message_stream_id = Int32.zero;
-        last_message_type_id = 0;
-        last_message_length = 0;
-      }
-    in
+    let cnx = create_connection s in
     Printf.printf "Accepting connection!\n%!";
-    (* C0 *)
-    let c0 = read_byte s in
-    assert (c0 = 3);
-    Printf.printf "C0\n%!";
-    (* S0 *)
-    write_byte s 3;
-    (* S1 *)
-    let time2 = (* now () *) Int32.zero in
-    let rand2 = Bytes.create 1528 in
-    write_int32 s time2;
-    write_int32 s Int32.zero;
-    write s rand2;
-    (* C1 *)
-    let time = read_int32 s in
-    let time2' = read_int32 s in (* should be zero *)
-    let rand = read s 1528 in
-    (* assert (time2' = Int32.zero); *)
-    Printf.printf "C1 (%ld, %ld)\n%!" time time2';
-    (* S2 *)
-    write_int32 s time2;
-    write_int32 s time;
-    write s rand;
-    (* C2 *)
-    let time' = read_int32 s in
-    if time' <> time then
-      Printf.printf "C2 time: %ld instead of %ld\n%!" time' time;
-    assert (read_int32 s = time2);
-    assert (read s 1528 = rand2);
-    Printf.printf "C2 (%ld)\n%!" time';
+    handshake cnx;
     (* Let's go. *)
     let messages = ref [] in
     let add_message msg = messages := msg :: !messages in
@@ -430,3 +425,6 @@ let () =
     Printf.printf "Done with connection\n%!";
     ignore (exit 0)
   done
+
+let () =
+  server ()
