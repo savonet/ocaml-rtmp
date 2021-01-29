@@ -393,37 +393,3 @@ let handle_messages f cnx =
            false )
          else true)
       cnx.messages
-
-(** Client. *)
-let client () =
-  Random.self_init ();
-  let url = "rtmp://a.rtmp.youtube.com/live2" in
-  let server = "a.rtmp.youtube.com" in
-  let addr = Unix.gethostbyname server in
-  let s = Unix.socket addr.Unix.h_addrtype Unix.SOCK_STREAM 0 in
-  Printf.printf "Connecting to %s... %!" server;
-  Unix.connect s (Unix.ADDR_INET (addr.Unix.h_addr_list.(0), 1935));
-  Printf.printf "done.\n%!";
-  let cnx = create_connection s in
-  handshake cnx;
-  let transaction_id =
-    let n = ref 0 in
-    fun () -> incr n; !n
-  in
-  let poll () =
-    read_chunks cnx;
-    let handler ~timestamp ~stream = function
-      | _ -> Printf.printf "unhandled message...\n%!"; assert false
-    in
-    handle_messages handler cnx
-  in
-  command cnx "connect" (transaction_id ()) [AMF.Object ["app", AMF.String "youtube"; "tcUrl", AMF.String url]];
-  poll ();
-  command cnx "releaseStream" (transaction_id ()) [AMF.Null; AMF.String "live2"];
-  poll ();
-  command cnx "FCPublish" (transaction_id ()) [AMF.Null; AMF.String "live2"];
-  poll ();
-  command cnx "createStream" (transaction_id ()) [AMF.Null];
-  poll ();
-  command cnx "publish" (transaction_id ()) [AMF.Null; AMF.String "live2"; AMF.String "live"];
-  poll ()

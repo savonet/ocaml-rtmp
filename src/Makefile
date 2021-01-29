@@ -2,7 +2,7 @@ SOURCES = AMF.ml IO.ml FLV.ml RTMP.ml
 RESULT = RTMP
 PACKS = unix
 
-all: dncl server
+all: dncl server client
 
 run: all
 	./server & $(MAKE) test
