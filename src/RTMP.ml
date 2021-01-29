@@ -332,8 +332,67 @@ let read_chunks cnx =
     read_chunk cnx
   done
 
-(** Handle pending completed messages. *)
-(* let handle_messages f cnx = *)
+(** Handle pending messages. *)
+let handle_messages f cnx =
+  let handle_message msg =
+    let f = f ~timestamp:msg.message_timestamp ~stream:msg.message_stream_id in
+    let data = String.concat "" (List.rev msg.message_data) in
+    match msg.message_type_id with
+    | 0x01 ->
+      let n = int32_of_bits data in
+      Printf.printf "Got chunk size: %ld\n%!" n;
+      cnx.chunk_size <- Int32.to_int n
+    | 0x09 ->
+      Printf.printf "Video message (%d bytes)\n%!" (String.length data);
+      f (`Video data)
+    | 0x12 ->
+      Printf.printf "Data: %s\n%!" data;
+      let amf = AMF.decode data in
+      f (`Data amf)
+    | 0x14 ->
+      Printf.printf "AMF0: %s\n%!" data;
+      Printf.printf "%s\n%!" (hex_of_string data);
+      let amf = AMF.decode data in
+      Printf.printf "%s\n%!" (AMF.list_to_string amf);
+      let amf = Array.of_list amf in
+      (
+        match AMF.get_string amf.(0) with
+        | "connect" ->
+          Printf.printf "Connecting...\n%!";
+          window_acknowledgement_size cnx 500000;
+          set_peer_bandwidth cnx 500000 `Dynamic;
+          set_chunk_size cnx cnx.chunk_size;
+          let tid = AMF.get_number amf.(1) in
+          command cnx ~message_stream_id:Int32.zero "_result" tid [AMF.Object ["fmsVer", AMF.String "FMS/3,0,1,123"; "capabilities", AMF.Number 31.]]
+        | "createStream" ->
+          Printf.printf "Creating stream...\n%!";
+          let tid = AMF.get_number amf.(1) in
+          let stream_id = 0 in
+          command cnx ~message_stream_id:Int32.zero "_result" tid [AMF.Null; AMF.Number (float_of_int stream_id)]
+        | "deleteStream" ->
+          Printf.printf "Deleting stream...\n%!";
+          f `Delete_stream
+        | "publish" ->
+          Printf.printf "Publishing...\n%!";
+          let tid = AMF.get_number amf.(1) in
+          let name = AMF.get_string amf.(3) in
+          let kind = AMF.get_string amf.(4) in
+          let stream_id = 0 in
+          command cnx ~message_stream_id:Int32.zero "onStatus" tid [AMF.Null; AMF.Object ["level", AMF.String "status"; "code", AMF.String "NetStream.Publish.Start"; "descritpion", AMF.String ("Publishing stream " ^ name)]]
+        (* stream_begin cnx.socket (Int32.of_int stream_id) *)
+        | _ ->
+          Printf.printf "Unhandled AMF: %s\n%!" (AMF.to_string amf.(0))
+      )
+    | t -> Printf.printf "\nUnhandled message type 0x%02x\n%!" t; assert false
+  in
+  cnx.messages <-
+    List.filter
+      (fun msg ->
+         if msg.message_remaining = 0 then (
+           handle_message msg;
+           false )
+         else true)
+      cnx.messages
 
 (** Client. *)
 let client () =
@@ -369,20 +428,9 @@ let server () =
     Printf.printf "Waiting for client\n%!";
     let s, caller = Unix.accept socket in
     let cnx = create_connection s in
-    Printf.printf "Accepting connection!\n%!";
-    handshake cnx;
-    (* Let's go. *)
-    let handle_message msg =
-      let data = String.concat "" (List.rev msg.message_data) in
-      match msg.message_type_id with
-      | 0x01 ->
-        let n = int32_of_bits data in
-        Printf.printf "Got chunk size: %ld\n%!" n;
-        cnx.chunk_size <- Int32.to_int n
-      | 0x09 ->
-        Printf.printf "Video message (%d bytes)\n%!" (String.length data);
+    let handler ~timestamp ~stream = function
+      | `Video data ->
         output_string dump (bits_of_int32 Int32.zero); (* size of previous tag *)
-        (* output_string dump (bits_of_int32 Int32.zero); (\* size of previous tag *\) *)
         output_string dump "\x09"; (* video *)
         output_string dump (bits_of_int24 (String.length data));
         output_string dump (bits_of_int24 (Int32.to_int (now cnx))); (* timestamp *)
@@ -390,59 +438,17 @@ let server () =
         (* output_string dump (bits_of_int24 0); (\* stream id, always 0 *\) *)
         output_string dump "\x00\x00\x00\x00";
         output_string dump data
-      | 0x12 ->
-        Printf.printf "Data: %s\n%!" data;
-        let amf = AMF.decode data in
+      | `Delete_stream ->
+        close_out dump
+      | `Data amf ->
         Printf.printf "%s\n%!" (AMF.list_to_string amf)
-      | 0x14 ->
-        Printf.printf "AMF0: %s\n%!" data;
-        Printf.printf "%s\n%!" (hex_of_string data);
-        let amf = AMF.decode data in
-        Printf.printf "%s\n%!" (AMF.list_to_string amf);
-        let amf = Array.of_list amf in
-        (
-          match AMF.get_string amf.(0) with
-          | "connect" ->
-            Printf.printf "Connecting...\n%!";
-            window_acknowledgement_size cnx 500000;
-            set_peer_bandwidth cnx 500000 `Dynamic;
-            set_chunk_size cnx cnx.chunk_size;
-            let tid = AMF.get_number amf.(1) in
-            command cnx ~message_stream_id:Int32.zero "_result" tid [AMF.Object ["fmsVer", AMF.String "FMS/3,0,1,123"; "capabilities", AMF.Number 31.]]
-          | "createStream" ->
-            Printf.printf "Creating stream...\n%!";
-            let tid = AMF.get_number amf.(1) in
-            let stream_id = 0 in
-            command cnx ~message_stream_id:Int32.zero "_result" tid [AMF.Null; AMF.Number (float_of_int stream_id)]
-          | "deleteStream" ->
-            Printf.printf "Deleting stream...\n%!";
-            close_out dump
-          | "publish" ->
-            Printf.printf "Publishing...\n%!";
-            let tid = AMF.get_number amf.(1) in
-            let name = AMF.get_string amf.(3) in
-            let kind = AMF.get_string amf.(4) in
-            let stream_id = 0 in
-            command cnx ~message_stream_id:Int32.zero "onStatus" tid [AMF.Null; AMF.Object ["level", AMF.String "status"; "code", AMF.String "NetStream.Publish.Start"; "descritpion", AMF.String ("Publishing stream " ^ name)]]
-            (* stream_begin cnx.socket (Int32.of_int stream_id) *)
-          | _ ->
-            Printf.printf "Unhandled AMF: %s\n%!" (AMF.to_string amf.(0))
-        )
-      | t -> Printf.printf "\nUnhandled message type 0x%02x\n%!" t; assert false
     in
-    let handle_messages () =
-      cnx.messages <-
-        List.filter
-          (fun msg ->
-             if msg.message_remaining = 0 then (
-               handle_message msg;
-               false )
-             else true)
-          cnx.messages
-    in
+    Printf.printf "Accepting connection!\n%!";
+    handshake cnx;
+    (* Let's go. *)
     while true do
       read_chunk cnx;
-      handle_messages ()
+      handle_messages handler cnx
     done;
     Printf.printf "Done with connection\n%!";
     ignore (exit 0)
