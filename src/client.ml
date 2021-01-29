@@ -32,6 +32,7 @@ let () =
   let poll () =
     RTMP.read_chunks cnx;
     let handler ~timestamp ~stream = function
+      | `Command (_, `On_status amf) -> Printf.printf "On status: %s\n%!" (AMF.to_string amf)
       | _ -> Printf.printf "unhandled message...\n%!"; assert false
     in
     RTMP.handle_messages handler cnx

@@ -10,6 +10,9 @@ c: client
 run: all
 	./server & $(MAKE) test
 
+self: all
+	./server & ./client
+
 # Build example files
 %: %.ml dncl
 	ocamlopt unix.cmxa RTMP.cmxa $< -o $@

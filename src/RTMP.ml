@@ -390,6 +390,9 @@ let handle_messages f cnx =
           let stream_id = 0 in
           command cnx ~message_stream_id:Int32.zero "onStatus" tid [AMF.Null; AMF.Object ["level", AMF.String "status"; "code", AMF.String "NetStream.Publish.Start"; "description", AMF.String ("Publishing stream " ^ name)]]
         (* stream_begin cnx.socket (Int32.of_int stream_id) *)
+        | "onStatus" ->
+          Printf.printf "On status\n%!";
+          f (`Command (tid, `On_status amf.(3)))
         | "_result" ->
           Printf.printf "Result\n%!";
           let amf = Array.sub amf 2 (Array.length amf - 2) in

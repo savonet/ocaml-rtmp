@@ -22,6 +22,7 @@ let () =
         Printf.printf "data: %s\n%!" (AMF.list_to_string amf)
       | `Command (_, `Result amf) ->
         Printf.printf "result\n%!"
+      | _ -> assert false
     in
     Printf.printf "Accepting connection!\n%!";
     RTMP.handshake cnx;
