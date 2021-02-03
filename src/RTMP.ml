@@ -353,6 +353,9 @@ let handle_messages f cnx =
       let n = int32_of_bits (String.sub data 0 4) in
       let t = int_of_char data.[4] in
       Printf.printf "Peer bandwidth: %ld / %d\n%!" n t
+    | 0x08 ->
+      Printf.printf "Audio message (%d bytes)\n%!" (String.length data);
+      f (`Audio data)
     | 0x09 ->
       Printf.printf "Video message (%d bytes)\n%!" (String.length data);
       f (`Video data)

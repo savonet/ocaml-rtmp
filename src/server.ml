@@ -11,8 +11,10 @@ let () =
     let s, caller = Unix.accept socket in
     let cnx = RTMP.create_connection s in
     let handler ~timestamp ~stream = function
+      | `Audio data ->
+        FLV.write_audio dump (RTMP.now cnx) data
       | `Video data ->
-        FLV.write_video dump (RTMP.now cnx) data;
+        FLV.write_video dump (RTMP.now cnx) data
       | `Command (_, `Delete_stream _) ->
         FLV.close_out dump
       | `Data [AMF.String l; AMF.String "onMetaData"; AMF.Map m] ->
