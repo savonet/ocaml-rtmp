@@ -79,6 +79,8 @@ type message = {
   mutable message_remaining : int; (* Bytes which remain to be fetched *)
 }
 
+module IMap = Map.Make (struct type t = int let compare = compare end)
+
 (** Parameters for a given connection. *)
 type connection =
   {
@@ -86,10 +88,10 @@ type connection =
     mutable last_time : float;
     socket : Unix.file_descr;
     mutable chunk_size : int;
-    mutable last_timestamp : Int32.t;
-    mutable last_message_length : int;
-    mutable last_message_stream_id : Int32.t;
-    mutable last_message_type_id : int;
+    mutable last_timestamp : Int32.t IMap.t;
+    mutable last_message_length : int IMap.t;
+    mutable last_message_stream_id : Int32.t IMap.t;
+    mutable last_message_type_id : int IMap.t;
     mutable messages : message list;
   }
 
@@ -100,10 +102,10 @@ let create_connection socket =
     last_time = 0.;
     socket;
     chunk_size = 128;
-    last_timestamp = Int32.zero;
-    last_message_length = 0;
-    last_message_stream_id = Int32.zero;
-    last_message_type_id = 0;
+    last_timestamp = IMap.empty;
+    last_message_length = IMap.empty;
+    last_message_stream_id = IMap.empty;
+    last_message_type_id = IMap.empty;
     messages = [];
   }
 
@@ -245,10 +247,10 @@ let read_chunk cnx =
         if timestamp = 0xffffff then read_int32 s
         else Int32.of_int timestamp
       in
-      cnx.last_timestamp <- timestamp;
-      cnx.last_message_length <- message_length;
-      cnx.last_message_stream_id <- message_stream_id;
-      cnx.last_message_type_id <- message_type_id;
+      cnx.last_timestamp <- IMap.add chunk_stream_id timestamp cnx.last_timestamp;
+      cnx.last_message_length <- IMap.add chunk_stream_id message_length cnx.last_message_length;
+      cnx.last_message_stream_id <- IMap.add chunk_stream_id message_stream_id cnx.last_message_stream_id;
+      cnx.last_message_type_id <- IMap.add chunk_stream_id message_type_id cnx.last_message_type_id;
       Printf.printf "Timestamp: %d\n%!" (Int32.to_int timestamp);
       Printf.printf "Message length: %d\n%!" message_length;
       Printf.printf "Message type: %d (0x%x)\n%!" message_type_id message_type_id;
@@ -274,10 +276,11 @@ let read_chunk cnx =
         if timestamp_delta = 0xffffff then read_int32 s
         else Int32.of_int timestamp_delta
       in
-      let timestamp = Int32.add cnx.last_timestamp timestamp_delta in
-      cnx.last_timestamp <- timestamp;
-      cnx.last_message_length <- message_length;
-      cnx.last_message_type_id <- message_type_id;
+      let timestamp = IMap.find chunk_stream_id cnx.last_timestamp in
+      let timestamp = Int32.add timestamp timestamp_delta in
+      cnx.last_timestamp <- IMap.add chunk_stream_id timestamp cnx.last_timestamp;
+      cnx.last_message_length <- IMap.add chunk_stream_id message_length cnx.last_message_length;
+      cnx.last_message_type_id <- IMap.add chunk_stream_id message_type_id cnx.last_message_type_id;
       Printf.printf "Timestamp delta: %d\n%!" (Int32.to_int timestamp_delta);
       Printf.printf "Message length: %d\n%!" message_length;
       Printf.printf "Message type: %d (0x%x)\n%!" message_type_id message_type_id;
@@ -288,7 +291,7 @@ let read_chunk cnx =
           message_chunk_stream_id = chunk_stream_id;
           message_timestamp = timestamp;
           message_type_id;
-          message_stream_id = cnx.last_message_stream_id;
+          message_stream_id = IMap.find chunk_stream_id cnx.last_message_stream_id;
           message_data = [data];
           message_remaining = message_length - data_length;
         }
@@ -300,11 +303,12 @@ let read_chunk cnx =
         if timestamp_delta = 0xffffff then read_int32 s
         else Int32.of_int timestamp_delta
       in
-      let timestamp = Int32.add cnx.last_timestamp timestamp_delta in
-      cnx.last_timestamp <- timestamp;
+      let timestamp = IMap.find chunk_stream_id cnx.last_timestamp in
+      let timestamp = Int32.add timestamp timestamp_delta in
+      cnx.last_timestamp <- IMap.add chunk_stream_id timestamp cnx.last_timestamp;
       Printf.printf "Timestamp delta: %d\n%!" (Int32.to_int timestamp_delta);
-      let message_type_id = cnx.last_message_type_id in
-      let message_length = cnx.last_message_length in
+      let message_type_id = IMap.find chunk_stream_id cnx.last_message_type_id in
+      let message_length = IMap.find chunk_stream_id cnx.last_message_length in
       let data_length = min cnx.chunk_size message_length in
       let data = read_string s data_length in
       let msg =
@@ -312,7 +316,7 @@ let read_chunk cnx =
           message_chunk_stream_id = chunk_stream_id;
           message_timestamp = timestamp;
           message_type_id;
-          message_stream_id = cnx.last_message_stream_id;
+          message_stream_id = IMap.find chunk_stream_id cnx.last_message_stream_id;
           message_data = [data];
           message_remaining = message_length - data_length;
         }
