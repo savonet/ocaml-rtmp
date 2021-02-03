@@ -1,6 +1,6 @@
 (** AMF0 *)
 
-type t = Number of float | String of string | Object of (string * t) list | Map of (string * t) list | Null
+type t = Number of float | Bool of bool | String of string | Object of (string * t) list | Map of (string * t) list | Null
 
 let get_number = function Number x -> x | _ -> assert false
 
@@ -13,6 +13,7 @@ let get_string = function String s -> s | _ -> assert false
 (** String representation of a value (for debugging purposes). *)
 let rec to_string = function
   | Number n -> Printf.sprintf "%f" n
+  | Bool b -> Printf.sprintf "%b" b
   | String s -> "\"" ^ s ^ "\""
   | Object l ->
     let l = List.map (fun (l, v) -> l ^ ": " ^ to_string v) l |> String.concat ", " in
@@ -55,6 +56,9 @@ let rec encode data =
     | Number x ->
       byte 0x00;
       u64 (Int64.bits_of_float x)
+    | Bool b ->
+      byte 0x01;
+      byte (if b then 1 else 0)
     | String s ->
       byte 0x02;
       string s
@@ -118,6 +122,9 @@ let decode data =
       (* number *)
       let n = double () in
       Number n
+    | 0x01 ->
+      let n = byte () in
+      Bool (n <> 0)
     | 0x02 ->
       (* string *)
       let s = string () in
