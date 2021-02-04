@@ -222,7 +222,16 @@ let handshake cnx =
 (** Read a chunk. *)
 let read_chunk cnx =
   Printf.printf "\n%!";
-  let add_message msg = cnx.messages <- msg :: cnx.messages in
+  let add_message msg =
+    match msg.message_type_id with
+    | 0x01 ->
+      (* We need to handle this one ASAP because it has influence on how we read next messages... *)
+      let data = String.concat "" (List.rev msg.message_data) in
+      let n = int32_of_bits data in
+      Printf.printf "Got chunk size: %ld\n%!" n;
+      cnx.chunk_size <- Int32.to_int n
+    | _ -> cnx.messages <- msg :: cnx.messages
+  in
   let find_message cid = List.find (fun msg -> msg.message_chunk_stream_id = cid) cnx.messages in
   let have_message cid = try ignore (find_message cid); true with Not_found -> false in
   let s = cnx.socket in
@@ -277,14 +286,14 @@ let read_chunk cnx =
         if timestamp_delta = 0xffffff then read_int32 s
         else Int32.of_int timestamp_delta
       in
+      Printf.printf "Timestamp delta: %ld\n%!" timestamp_delta;
+      Printf.printf "Message length: %d\n%!" message_length;
+      Printf.printf "Message type: %d (0x%x)\n%!" message_type_id message_type_id;
       let timestamp = IMap.find chunk_stream_id cnx.last_timestamp in
       let timestamp = Int32.add timestamp timestamp_delta in
       cnx.last_timestamp <- IMap.add chunk_stream_id timestamp cnx.last_timestamp;
       cnx.last_message_length <- IMap.add chunk_stream_id message_length cnx.last_message_length;
       cnx.last_message_type_id <- IMap.add chunk_stream_id message_type_id cnx.last_message_type_id;
-      Printf.printf "Timestamp delta: %ld\n%!" timestamp_delta;
-      Printf.printf "Message length: %d\n%!" message_length;
-      Printf.printf "Message type: %d (0x%x)\n%!" message_type_id message_type_id;
       let data_length = min cnx.chunk_size message_length in
       let data = read_string s data_length in
       let msg =
@@ -367,10 +376,12 @@ let handle_messages f cnx =
     let f = f ~timestamp:msg.message_timestamp ~stream:msg.message_stream_id in
     let data = String.concat "" (List.rev msg.message_data) in
     match msg.message_type_id with
+    (*
     | 0x01 ->
       let n = int32_of_bits data in
       Printf.printf "Got chunk size: %ld\n%!" n;
       cnx.chunk_size <- Int32.to_int n
+    *)
     | 0x05 ->
       let n = int32_of_bits data in
       Printf.printf "Got window ack: %ld\n%!" n
