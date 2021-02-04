@@ -30,10 +30,14 @@ let () =
     | _, _, `Command(_, `Result _) -> Printf.printf "Connected!\n%!"
     | _ -> assert false
   in
-  let poll () =
+  let poll ?(result=false) () =
     RTMP.read_chunks cnx;
     let handler ~timestamp ~stream = function
       | `Command (_, `On_status amf) -> Printf.printf "On status: %s\n%!" (AMF.to_string amf)
+      | `Command (_, `Result amf) -> Printf.printf "Got result: %s\n%!" (AMF.list_to_string (Array.to_list amf))
+      | `Audio _ -> assert false
+      | `Video _ -> assert false
+      | `Data _ -> assert false
       | _ -> Printf.printf "unhandled message...\n%!"; assert false
     in
     RTMP.handle_messages handler cnx
@@ -41,8 +45,7 @@ let () =
   poll ();
   Printf.printf "Connecting.\n%!";
   RTMP.command cnx "connect" (transaction_id ()) [AMF.Object ["app", AMF.String "live2"; "type", AMF.String "nonprivate"; "flashVer", AMF.String "FMLE/3.0"; "tcUrl", AMF.String url]];
-  (* check_result (); *)
-  poll ();
+  poll ~result:true ();
   RTMP.command cnx "releaseStream" (transaction_id ()) [AMF.Null; AMF.String key];
   poll ();
   RTMP.command cnx "FCPublish" (transaction_id ()) [AMF.Null; AMF.String key];

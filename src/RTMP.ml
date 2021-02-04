@@ -437,7 +437,7 @@ let handle_messages f cnx =
           let amf = Array.sub amf 2 (Array.length amf - 2) in
           f (`Command (tid, `Result amf))
         | _ ->
-          Printf.printf "Unhandled AMF: %s\n%!" (AMF.to_string amf.(0))
+          Printf.printf "Unhandled AMF: %s (%s)\n%!" (AMF.to_string amf.(0)) (AMF.list_to_string (Array.to_list amf));
       )
     | t -> Printf.printf "\nUnhandled message type 0x%02x\n%!" t; assert false
   in
