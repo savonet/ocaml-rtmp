@@ -4,14 +4,14 @@ open IO
 
 let byte n = String.make 1 (char_of_int n)
 
-type t = out_channel * int ref (* size of previous tag *)
+type out_t = out_channel * int ref (* size of previous tag *)
 
-let oc (f : t) = fst f
+let oc (f : out_t) = fst f
 
 (** Previous tag size. *)
-let pts (f : t) = snd f
+let pts (f : out_t) = snd f
 
-let open_out ?(audio=true) ?(video=true) fname : t =
+let open_out ?(audio=true) ?(video=true) fname : out_t =
   let oc = open_out fname in
   output_string oc "FLV\x01";
   output_string oc (byte ((if audio then 4 else 0) + (if video then 1 else 0)));
@@ -44,3 +44,62 @@ let write_metadata f l =
 let write_audio f timestamp data = write_tag f 8 timestamp data
 
 let write_video f timestamp data = write_tag f 9 timestamp data
+
+type in_t = in_channel
+
+let input_u24 ic =
+  let ans = ref 0 in
+  for _ = 0 to 2 do
+    ans := (!ans lsl 8) + (input_byte ic)
+  done;
+  !ans
+
+let input_u32 ic =
+  let ans = ref Int32.zero in
+  for _ = 0 to 3 do
+    ans := Int32.add (Int32.shift_left !ans 8) (Int32.of_int (input_byte ic))
+  done;
+  !ans
+
+let open_in fname : in_t =
+  let ic = open_in fname in
+  assert (really_input_string ic 3 = "FLV");
+  assert (input_byte ic = 0x01);
+  ignore (input_byte ic);
+  assert (input_u32 ic = Int32.of_int 9);
+  (* Size of previous tag *)
+  assert (input_u32 ic = Int32.zero);
+  ic
+
+let read_tag (ic : in_t) =
+  let n = input_byte ic in
+  (* Reserved *)
+  assert (n land 0b11000000 = 0);
+  (* No encryption *)
+  assert (n land 0b00100000 = 0);
+  let tag_type = n land 0b11111 in
+  (* Printf.printf "tag: %d\n%!" tag_type; *)
+  let data_size = input_u24 ic in
+  (* Printf.printf "size: %d\n%!" data_size; *)
+  let timestamp = input_u24 ic in
+  let timestamp_extended = input_byte ic in
+  assert (timestamp_extended = 0);
+  (* Stream id *)
+  assert (input_u24 ic = 0);
+  let ans =
+    match tag_type with
+    | 8 ->
+      let data = really_input_string ic data_size in
+      `Audio data
+    | 9 ->
+      let data = really_input_string ic data_size in
+      `Video data
+    | 18 ->
+      let data = really_input_string ic data_size in
+      let amf = AMF.decode data |> Array.of_list in
+      `Data (AMF.get_string amf.(0), amf.(1))
+    | _ -> assert false
+  in
+  (* Size of previous tag *)
+  ignore (input_u32 ic);
+  ans

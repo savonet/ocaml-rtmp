@@ -24,12 +24,6 @@ let () =
     let n = ref 0 in
     fun () -> incr n; !n
   in
-  let check_result () =
-    assert (Unix.select [s] [] [] 60. <> ([], [], []));
-    match RTMP.read_message cnx with
-    | _, _, `Command(_, `Result _) -> Printf.printf "Connected!\n%!"
-    | _ -> assert false
-  in
   let poll ?(result=false) () =
     RTMP.read_chunks cnx;
     let handler ~timestamp ~stream = function
@@ -51,8 +45,8 @@ let () =
   RTMP.command cnx "FCPublish" (transaction_id ()) [AMF.Null; AMF.String key];
   poll ();
   RTMP.command cnx "createStream" (transaction_id ()) [AMF.Null];
-  check_result ();
-  (* TODO: metadata *)
+  poll ~result:true ();
   RTMP.command cnx "publish" (transaction_id ()) [AMF.Null; AMF.String key; AMF.String "live"];
-  poll ()
+  poll ();
+  (* TODO: metadata *)
 

@@ -2,13 +2,16 @@ SOURCES = AMF.ml IO.ml FLV.ml RTMP.ml
 RESULT = RTMP
 PACKS = unix
 
-all: dncl server client
+all: dncl server client readflv
 
 c: client
 	./client
 
 s: server
 	./server
+
+r: readflv
+	./readflv
 
 run: all
 	./server & $(MAKE) test
