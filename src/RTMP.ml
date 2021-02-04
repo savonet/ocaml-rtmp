@@ -224,6 +224,7 @@ let read_chunk cnx =
   Printf.printf "\n%!";
   let add_message msg = cnx.messages <- msg :: cnx.messages in
   let find_message cid = List.find (fun msg -> msg.message_chunk_stream_id = cid) cnx.messages in
+  let have_message cid = try ignore (find_message cid); true with Not_found -> false in
   let s = cnx.socket in
   (* Basic header *)
   let basic = read_byte s in
@@ -251,10 +252,10 @@ let read_chunk cnx =
       cnx.last_message_length <- IMap.add chunk_stream_id message_length cnx.last_message_length;
       cnx.last_message_stream_id <- IMap.add chunk_stream_id message_stream_id cnx.last_message_stream_id;
       cnx.last_message_type_id <- IMap.add chunk_stream_id message_type_id cnx.last_message_type_id;
-      Printf.printf "Timestamp: %d\n%!" (Int32.to_int timestamp);
+      Printf.printf "Timestamp: %ld\n%!" timestamp;
       Printf.printf "Message length: %d\n%!" message_length;
       Printf.printf "Message type: %d (0x%x)\n%!" message_type_id message_type_id;
-      Printf.printf "Message stream: %d\n%!" (Int32.to_int message_stream_id);
+      Printf.printf "Message stream: %ld\n%!" message_stream_id;
       let data_length = min cnx.chunk_size message_length in
       let data = read_string s data_length in
       let msg =
@@ -281,7 +282,7 @@ let read_chunk cnx =
       cnx.last_timestamp <- IMap.add chunk_stream_id timestamp cnx.last_timestamp;
       cnx.last_message_length <- IMap.add chunk_stream_id message_length cnx.last_message_length;
       cnx.last_message_type_id <- IMap.add chunk_stream_id message_type_id cnx.last_message_type_id;
-      Printf.printf "Timestamp delta: %d\n%!" (Int32.to_int timestamp_delta);
+      Printf.printf "Timestamp delta: %ld\n%!" timestamp_delta;
       Printf.printf "Message length: %d\n%!" message_length;
       Printf.printf "Message type: %d (0x%x)\n%!" message_type_id message_type_id;
       let data_length = min cnx.chunk_size message_length in
@@ -306,9 +307,10 @@ let read_chunk cnx =
       let timestamp = IMap.find chunk_stream_id cnx.last_timestamp in
       let timestamp = Int32.add timestamp timestamp_delta in
       cnx.last_timestamp <- IMap.add chunk_stream_id timestamp cnx.last_timestamp;
-      Printf.printf "Timestamp delta: %d\n%!" (Int32.to_int timestamp_delta);
+      Printf.printf "Timestamp delta: %ld\n%!" timestamp_delta;
       let message_type_id = IMap.find chunk_stream_id cnx.last_message_type_id in
       let message_length = IMap.find chunk_stream_id cnx.last_message_length in
+      Printf.printf "Length (copied): %d\n%!" message_length;
       let data_length = min cnx.chunk_size message_length in
       let data = read_string s data_length in
       let msg =
@@ -323,13 +325,32 @@ let read_chunk cnx =
       in
       add_message msg
     | 3 ->
-      let msg = find_message chunk_stream_id in
-      let remaining = msg.message_remaining in
-      let data_length = min cnx.chunk_size remaining in
-      Printf.printf "read %d\n%!" data_length;
-      let data = read_string s data_length in
-      msg.message_data <- data :: msg.message_data;
-      msg.message_remaining <- msg.message_remaining - data_length
+      if have_message chunk_stream_id then
+        let msg = find_message chunk_stream_id in
+        let remaining = msg.message_remaining in
+        let data_length = min cnx.chunk_size remaining in
+        Printf.printf "read %d\n%!" data_length;
+        let data = read_string s data_length in
+        msg.message_data <- data :: msg.message_data;
+        msg.message_remaining <- msg.message_remaining - data_length
+      else
+        let timestamp = IMap.find chunk_stream_id cnx.last_timestamp in (* TODO: do we increment automatically? *)
+        let message_type_id = IMap.find chunk_stream_id cnx.last_message_type_id in
+        let message_length = IMap.find chunk_stream_id cnx.last_message_length in
+        let data_length = min cnx.chunk_size message_length in
+        let data = read_string s data_length in
+        let msg =
+          {
+            message_chunk_stream_id = chunk_stream_id;
+            message_timestamp = timestamp;
+            message_type_id;
+            message_stream_id = IMap.find chunk_stream_id cnx.last_message_stream_id;
+            message_data = [data];
+            message_remaining = message_length - data_length;
+          }
+        in
+        Printf.printf "No message found, creating a new one\n%!";
+        add_message msg
     | _ -> failwith ("TODO: Handle chunk type " ^ string_of_int chunk_type)
   )
 

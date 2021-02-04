@@ -10,8 +10,8 @@ let () =
   Random.self_init ();
   let key = stream_key () in
   let url = "rtmp://a.rtmp.youtube.com/live2" in
-  let server = "localhost" in
-  (* let server = "a.rtmp.youtube.com" in *)
+  (* let server = "localhost" in *)
+  let server = "a.rtmp.youtube.com" in
   let addr = Unix.gethostbyname server in
   let s = Unix.socket addr.Unix.h_addrtype Unix.SOCK_STREAM 0 in
   Printf.printf "Connecting to %s... %!" server;
@@ -25,6 +25,7 @@ let () =
     fun () -> incr n; !n
   in
   let check_result () =
+    assert (Unix.select [s] [] [] 60. <> ([], [], []));
     match RTMP.read_message cnx with
     | _, _, `Command(_, `Result _) -> Printf.printf "Connected!\n%!"
     | _ -> assert false

@@ -33,7 +33,7 @@ test-server:
 	ffmpeg -f flv -listen 1 -i rtmp://localhost:1935/live2/secret-key -c copy server.flv
 
 youtube:
-	ffmpeg -f lavfi -i testsrc=size=1280x720:rate=30 -f flv rtmp://a.rtmp.youtube.com/live2/$(shell cat stream-key)
+	ffmpeg -f lavfi -i testsrc=size=1280x720:rate=30 -f lavfi -i sine=frequency=440 -c:a pcm_s16le -f flv rtmp://a.rtmp.youtube.com/live2/$(shell cat stream-key)
 
 test.flv:
 	ffmpeg -f lavfi -i testsrc=duration=60:size=1280x720:rate=30 -f flv $@
