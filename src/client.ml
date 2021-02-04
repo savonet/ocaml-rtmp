@@ -9,7 +9,7 @@ let stream_key () =
 let () =
   Random.self_init ();
   let key = stream_key () in
-  let url = "rtmp://a.rtmp.youtube.com/live2" in
+  let url = "rtmp://a.rtmp.youtube.com:1935/live2" in
   (* let server = "localhost" in *)
   let server = "a.rtmp.youtube.com" in
   let addr = Unix.gethostbyname server in
@@ -40,8 +40,9 @@ let () =
   in
   poll ();
   Printf.printf "Connecting.\n%!";
-  RTMP.command cnx "connect" (transaction_id ()) [AMF.Object ["app", AMF.String "a.rtmp.youtube.com/live2"; "type", AMF.String "nonprivate"; "flashVer", AMF.String "FMLE/3.0"; "tcUrl", AMF.String url]];
-  check_result ();
+  RTMP.command cnx "connect" (transaction_id ()) [AMF.Object ["app", AMF.String "live2"; "type", AMF.String "nonprivate"; "flashVer", AMF.String "FMLE/3.0"; "tcUrl", AMF.String url]];
+  (* check_result (); *)
+  poll ();
   RTMP.command cnx "releaseStream" (transaction_id ()) [AMF.Null; AMF.String key];
   poll ();
   RTMP.command cnx "FCPublish" (transaction_id ()) [AMF.Null; AMF.String key];

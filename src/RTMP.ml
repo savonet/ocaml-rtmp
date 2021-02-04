@@ -357,7 +357,7 @@ let read_chunk cnx =
 (** Read as many chunks as available. *)
 let read_chunks cnx =
   let s = cnx.socket in
-  while Unix.select [s] [] [] 0.01 <> ([], [], []) do
+  while Unix.select [s] [] [] 0.1 <> ([], [], []) do
     read_chunk cnx
   done
 
