@@ -20,6 +20,8 @@ open IO
    - 6: data
 *)
 
+exception Connection_closed
+
 (** Low-level functions. *)
 
 let basic_header f ~chunk_type ~chunk_stream_id =
@@ -184,6 +186,19 @@ let command cnx ?(message_stream_id=Int32.zero) name transaction_id params =
   *)
   chunkify cnx ~chunk_stream_id:3 ~timestamp ~message_type_id:0x14 ~message_stream_id data
 
+let audio cnx ?(message_stream_id=Int32.zero) data =
+  let timestamp = now cnx in
+  chunkify cnx ~chunk_stream_id:4 ~timestamp ~message_type_id:0x08 ~message_stream_id data
+
+let video cnx ?(message_stream_id=Int32.zero) data =
+  let timestamp = now cnx in
+  chunkify cnx ~chunk_stream_id:5 ~timestamp ~message_type_id:0x09 ~message_stream_id data
+
+let data cnx ?(message_stream_id=Int32.zero) amf =
+  let timestamp = now cnx in
+  let data = AMF.encode_list amf in
+  chunkify cnx ~chunk_stream_id:6 ~timestamp ~message_type_id:0x12 ~message_stream_id data
+
 (** Perform handshake. *)
 let handshake cnx =
   let s = cnx.socket in
@@ -236,7 +251,7 @@ let read_chunk cnx =
   let have_message cid = try ignore (find_message cid); true with Not_found -> false in
   let s = cnx.socket in
   (* Basic header *)
-  let basic = read_byte s in
+  let basic = try read_byte s with _ -> raise Connection_closed in
   let chunk_type = basic lsr 6 in
   Printf.printf "Chunk type: %d\n%!" chunk_type;
   let chunk_stream_id =
@@ -396,8 +411,9 @@ let handle_messages f cnx =
       Printf.printf "Video message (%d bytes)\n%!" (String.length data);
       f (`Video data)
     | 0x12 ->
-      Printf.printf "Data: %s\n%!" data;
+      (* Printf.printf "Data: %s\n%!" data; *)
       let amf = AMF.decode data in
+      Printf.printf "Data: %s\n%!" (AMF.list_to_string amf);
       f (`Data amf)
     | 0x14 ->
       (* Printf.printf "AMF0: %s\n%!" data; *)

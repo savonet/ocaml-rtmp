@@ -103,3 +103,8 @@ let read_tag (ic : in_t) =
   (* Size of previous tag *)
   ignore (input_u32 ic);
   ans
+
+let read_metadata ic =
+  match read_tag ic with
+  | `Data ("onMetaData", amf) -> amf
+  | _ -> assert false

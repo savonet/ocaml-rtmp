@@ -39,7 +39,7 @@ let rec encode data =
   in
   let u32 n =
     for i = 0 to 3 do
-      byte (Int32.to_int (Int32.logand (Int32.shift_right n ((7-i)*8)) (Int32.of_int 0xff)));
+      byte (Int32.to_int (Int32.logand (Int32.shift_right n ((3-i)*8)) (Int32.of_int 0xff)));
     done
   in
   let u64 n =
@@ -62,13 +62,13 @@ let rec encode data =
     | String s ->
       byte 0x02;
       string s
-    | Null ->
-      byte 0x05
     | Object l ->
       byte 0x03;
       List.iter (fun (l,v) -> string l; push (encode v)) l;
       string "";
       byte 0x09
+    | Null ->
+      byte 0x05
     | Map l ->
       byte 0x08;
       u32 (Int32.of_int (List.length l));
@@ -163,3 +163,11 @@ let decode data =
     ans := value () :: !ans
   done;
   List.rev !ans
+
+(* TODO: move tests away *)
+let () =
+  let test amf = assert ((List.hd (decode (encode amf))) = amf) in
+  test (String "a");
+  test (Number 12.);
+  test (Bool true);
+  test (Map ["a", String "A"; "b", Number 5.])

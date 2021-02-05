@@ -4,7 +4,7 @@ PACKS = unix
 
 all: dncl server client readflv
 
-c: client
+c: client test.flv
 	./client
 
 s: server
@@ -39,6 +39,6 @@ youtube:
 	ffmpeg -f lavfi -i testsrc=size=1280x720:rate=30 -f lavfi -i sine=frequency=440 -c:a pcm_s16le -f flv rtmp://a.rtmp.youtube.com/live2/$(shell cat stream-key)
 
 test.flv:
-	ffmpeg -f lavfi -i testsrc=duration=60:size=1280x720:rate=30 -f flv $@
+	ffmpeg -f lavfi -i testsrc=duration=60:size=1280x720:rate=30 -f lavfi -i sine=frequency=440:duration=60 -c:a pcm_s16le -f flv $@
 
 include OCamlMakefile

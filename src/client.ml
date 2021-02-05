@@ -48,5 +48,15 @@ let () =
   poll ~result:true ();
   RTMP.command cnx "publish" (transaction_id ()) [AMF.Null; AMF.String key; AMF.String "live"];
   poll ();
-  (* TODO: metadata *)
+  let flv = FLV.open_in "test.flv" in
+  let md = FLV.read_metadata flv in
+  Printf.printf "set metadata to %s\n%!" (AMF.to_string md);
+  RTMP.data cnx [AMF.String "@setDataFrame"; AMF.String "onMetaData"; md];
+  poll ();
+  while true do
+    match FLV.read_tag flv with
+    | `Audio data -> RTMP.audio cnx data
+    | `Video data -> RTMP.video cnx data
+    | `Data _ -> assert false
+  done
 
