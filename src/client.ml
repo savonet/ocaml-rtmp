@@ -57,13 +57,14 @@ let () =
   RTMP.data cnx [AMF.String "@setDataFrame"; AMF.String "onMetaData"; md];
   while true do
     poll ();
+    Printf.printf "now: %ld\n%!" (RTMP.now cnx);
     match FLV.read_tag flv with
-    | `Audio data ->
-      Printf.printf "Send audio: %d\n%!" (String.length data);
-      RTMP.audio cnx data
-    | `Video data ->
-      Printf.printf "Send video: %d\n%!" (String.length data);
-      RTMP.video cnx data
-    | `Data _ -> assert false
+    | timestamp, `Audio data ->
+      Printf.printf "Send audio %ld: %d\n%!" timestamp (String.length data);
+      RTMP.audio cnx ~timestamp data
+    | timestamp, `Video data ->
+      Printf.printf "Send video %ld: %d\n%!" timestamp (String.length data);
+      RTMP.video cnx ~timestamp data
+    | _, `Data _ -> assert false
   done
 

@@ -83,7 +83,7 @@ let read_tag (ic : in_t) =
   (* Printf.printf "size: %d\n%!" data_size; *)
   let timestamp = input_u24 ic in
   let timestamp_extended = input_byte ic in
-  assert (timestamp_extended = 0);
+  let timestamp = Int32.add (Int32.shift_left (Int32.of_int timestamp_extended) 24) (Int32.of_int timestamp) in
   (* Stream id *)
   assert (input_u24 ic = 0);
   let ans =
@@ -102,9 +102,9 @@ let read_tag (ic : in_t) =
   in
   (* Size of previous tag *)
   ignore (input_u32 ic);
-  ans
+  timestamp, ans
 
 let read_metadata ic =
   match read_tag ic with
-  | `Data ("onMetaData", amf) -> amf
+  | _, `Data ("onMetaData", amf) -> amf
   | _ -> assert false

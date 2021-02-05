@@ -114,10 +114,10 @@ let create_connection socket =
   }
 
 (** Current timestamp. *)
-let now cnx = Int32.of_float ((Sys.time () -. cnx.start_time) *. 1000.)
+let now cnx = Int32.of_float ((Unix.gettimeofday () -. cnx.start_time) *. 1000.)
 
 (** Current timestamp delta. *)
-let delta cnx = Int32.of_float ((Sys.time () -. cnx.last_time) *. 1000.)
+let delta cnx = Int32.of_float ((Unix.gettimeofday () -. cnx.last_time) *. 1000.)
 
 (** Write a long message with chunks. *)
 let chunkify cnx ~chunk_stream_id ~timestamp ~message_type_id ~message_stream_id data =
@@ -177,18 +177,15 @@ let set_peer_bandwidth f n t =
   let t = String.make 1 (char_of_int t) in
   control_message f 6 (n ^ t)
 
-let command cnx ?(message_stream_id=Int32.zero) name transaction_id params =
+let command cnx ?(timestamp=now cnx) ?(message_stream_id=Int32.zero) name transaction_id params =
   Printf.printf "\nCOMMAND: %s\n%!" name;
-  let timestamp = now cnx in
   let data = AMF.encode_list ([AMF.String name; AMF.int transaction_id]@params) in
   chunkify cnx ~chunk_stream_id:3 ~timestamp ~message_type_id:0x14 ~message_stream_id data
 
-let audio cnx ?(message_stream_id=Int32.zero) data =
-  let timestamp = now cnx in
+let audio cnx ?(timestamp=now cnx) ?(message_stream_id=Int32.zero) data =
   chunkify cnx ~chunk_stream_id:4 ~timestamp ~message_type_id:0x08 ~message_stream_id data
 
-let video cnx ?(message_stream_id=Int32.zero) data =
-  let timestamp = now cnx in
+let video cnx ?(timestamp=now cnx) ?(message_stream_id=Int32.zero) data =
   chunkify cnx ~chunk_stream_id:5 ~timestamp ~message_type_id:0x09 ~message_stream_id data
 
 let data cnx ?(message_stream_id=Int32.zero) amf =
@@ -199,7 +196,7 @@ let data cnx ?(message_stream_id=Int32.zero) amf =
 (** Perform handshake. *)
 let handshake cnx =
   let s = cnx.socket in
-  cnx.start_time <- Sys.time ();
+  cnx.start_time <- Unix.gettimeofday ();
   cnx.last_time <- cnx.start_time;
   (* S0 *)
   write_byte s 3;
