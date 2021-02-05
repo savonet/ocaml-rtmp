@@ -12,9 +12,9 @@ let () =
     let cnx = RTMP.create_connection s in
     let handler ~timestamp ~stream = function
       | `Audio data ->
-        FLV.write_audio dump (RTMP.now cnx) data
+        FLV.write_audio dump timestamp data
       | `Video data ->
-        FLV.write_video dump (RTMP.now cnx) data
+        FLV.write_video dump timestamp data
       | `Command (_, `Delete_stream _) ->
         FLV.close_out dump
       | `Data [AMF.String l; AMF.String "onMetaData"; AMF.Map m] ->
@@ -37,6 +37,8 @@ let () =
         RTMP.command cnx "onStatus" tid [AMF.Null; AMF.Object ["level", AMF.String "status"; "code", AMF.String "NetStream.Publish.Start"; "description", AMF.String ("Publishing stream " ^ name)]];
       | `Command (_, `Result amf) ->
         Printf.printf "result\n%!"
+      | `Set_chunk_size n ->
+        RTMP.set_chunk_size cnx n
       | `Command (_, `Unhandled (name, amf)) ->
         Printf.printf "Unhandled command: %s\n%!" name
       | _ -> assert false
