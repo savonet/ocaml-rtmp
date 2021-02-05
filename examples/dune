@@ -1,0 +1,9 @@
+(executable
+ (name server)
+ (modules server)
+ (libraries rtmp))
+
+(executable
+ (name client)
+ (modules client)
+ (libraries rtmp))

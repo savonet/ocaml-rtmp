@@ -1,8 +1,8 @@
 let () =
-  let f = FLV.open_in "test.flv" in
+  let f = flv.open_in "test.flv" in
   while true do
-    match snd (FLV.read_tag f) with
+    match snd (flv.read_tag f) with
     | `Audio data -> Printf.printf "audio (%d bytes)\n\n%!" (String.length data)
     | `Video data -> Printf.printf "video (%d bytes)\n\n%!" (String.length data)
-    | `Data (n, v) -> Printf.printf "data %s: %s\n\n%!" n (AMF.to_string v)
+    | `Data (n, v) -> Printf.printf "data %s: %s\n\n%!" n (Amf.to_string v)
   done

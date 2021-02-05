@@ -1,4 +1,4 @@
-(** AMF0 *)
+(** amf0 *)
 
 type t = Number of float | Bool of bool | String of string | Object of (string * t) list | Map of (string * t) list | Null
 
@@ -25,7 +25,7 @@ let rec to_string = function
 
 let list_to_string l = String.concat ", " (List.map to_string l)
 
-(** Encode AMF value. *)
+(** Encode amf value. *)
 let rec encode data =
   let ans = ref [] in
   let push s = ans := s :: !ans in
@@ -81,7 +81,7 @@ let rec encode data =
 let encode_list data =
   String.concat "" (List.map encode data)
 
-(** Decode AMF value. *)
+(** Decode amf value. *)
 let decode data =
   let i = ref 0 in
   let n = String.length data in
@@ -155,7 +155,7 @@ let decode data =
       assert (byte () = 0x09);
       Map l
     | b ->
-      Printf.printf "***** Unknown AMF 0x%02x\n%!" b;
+      Printf.printf "***** Unknown amf 0x%02x\n%!" b;
       assert false
   in
   let ans = ref [] in

@@ -1,5 +1,5 @@
-SOURCES = AMF.ml IO.ml FLV.ml RTMP.ml
-RESULT = RTMP
+SOURCES = Amf.ml io.ml flv.ml rtmp.ml
+RESULT = rtmp
 PACKS = unix
 
 all: dncl server client readflv
@@ -21,7 +21,7 @@ self: all
 
 # Build example files
 %: %.ml dncl
-	ocamlopt unix.cmxa RTMP.cmxa $< -o $@
+	ocamlopt unix.cmxa rtmp.cmxa $< -o $@
 
 test:
 	# ffmpeg -f lavfi -i testsrc=duration=10:size=1280x720:rate=30 -f flv rtmp:///localhost/live2/secret-key

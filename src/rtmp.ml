@@ -10,7 +10,11 @@
    - timestamps are in miliseconds
 *)
 
-open IO
+include Io
+include Flv
+include Amf
+
+open Io
 
 (* Chunk streams id:
    - 2: protocol
@@ -179,7 +183,7 @@ let set_peer_bandwidth f n t =
 
 let command cnx ?(timestamp=now cnx) ?(message_stream_id=Int32.zero) name transaction_id params =
   Printf.printf "\nCOMMAND: %s\n%!" name;
-  let data = AMF.encode_list ([AMF.String name; AMF.int transaction_id]@params) in
+  let data = Amf.encode_list ([Amf.String name; Amf.int transaction_id]@params) in
   chunkify cnx ~chunk_stream_id:3 ~timestamp ~message_type_id:0x14 ~message_stream_id data
 
 let audio cnx ?(timestamp=now cnx) ?(message_stream_id=Int32.zero) data =
@@ -190,7 +194,7 @@ let video cnx ?(timestamp=now cnx) ?(message_stream_id=Int32.zero) data =
 
 let data cnx ?(message_stream_id=Int32.zero) amf =
   let timestamp = now cnx in
-  let data = AMF.encode_list amf in
+  let data = Amf.encode_list amf in
   chunkify cnx ~chunk_stream_id:6 ~timestamp ~message_type_id:0x12 ~message_stream_id data
 
 (** Perform handshake. *)
@@ -411,30 +415,30 @@ let pop_message cnx =
     `Video data
   | 0x12 ->
     (* Printf.printf "Data: %s\n%!" data; *)
-    let amf = AMF.decode data in
-    Printf.printf "Data: %s\n%!" (AMF.list_to_string amf);
+    let amf = Amf.decode data in
+    Printf.printf "Data: %s\n%!" (Amf.list_to_string amf);
     `Data amf
   | 0x14 ->
-    (* Printf.printf "AMF0: %s\n%!" data; *)
+    (* Printf.printf "amf0: %s\n%!" data; *)
     (* Printf.printf "%s\n%!" (hex_of_string data); *)
-    let amf = AMF.decode data in
-    Printf.printf "%s\n%!" (AMF.list_to_string amf);
+    let amf = Amf.decode data in
+    Printf.printf "%s\n%!" (Amf.list_to_string amf);
     let amf = Array.of_list amf in
-    let tid = AMF.get_int amf.(1) in
+    let tid = Amf.get_int amf.(1) in
     (
-      match AMF.get_string amf.(0) with
+      match Amf.get_string amf.(0) with
       | "connect" ->
         `Command (tid, `Connect)
       | "createStream" ->
         `Command (tid, `Create_stream)
       | "deleteStream" ->
         Printf.printf "Deleting stream...\n%!";
-        let n = AMF.get_int amf.(3) in
+        let n = Amf.get_int amf.(3) in
         `Command (tid, `Delete_stream n)
       | "publish" ->
         Printf.printf "Publish\n%!";
-        let name = AMF.get_string amf.(3) in
-        let kind = AMF.get_string amf.(4) in
+        let name = Amf.get_string amf.(3) in
+        let kind = Amf.get_string amf.(4) in
         `Command (tid, `Publish (name, kind))
       | "onBWDone" ->
         Printf.printf "onBWDone\n%!";
@@ -448,7 +452,7 @@ let pop_message cnx =
         `Command (tid, `Result amf)
       | name ->
         let amf = Array.sub amf 2 (Array.length amf - 2) in
-        Printf.printf "Unhandled AMF: %s (%s)\n%!" (AMF.to_string amf.(0)) (AMF.list_to_string (Array.to_list amf));
+        Printf.printf "Unhandled amf: %s (%s)\n%!" (Amf.to_string amf.(0)) (Amf.list_to_string (Array.to_list amf));
         `Command (tid, `Unhandled (name, amf))
     )
   | t -> Printf.printf "\nUnhandled message type 0x%02x\n%!" t; assert false

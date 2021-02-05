@@ -1,5 +1,8 @@
 *~
-*.cm*
-*.a
-*.o
-._d
+_build
+*.byte
+*.native
+_tests
+.merlin
+*.install
+*.sw*

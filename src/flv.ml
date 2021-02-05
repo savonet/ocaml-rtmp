@@ -1,6 +1,6 @@
-(** Operations on FLV files. *)
+(** Operations on flv files. *)
 
-open IO
+open Io
 
 let byte n = String.make 1 (char_of_int n)
 
@@ -13,7 +13,7 @@ let pts (f : out_t) = snd f
 
 let open_out ?(audio=true) ?(video=true) fname : out_t =
   let oc = open_out fname in
-  output_string oc "FLV\x01";
+  output_string oc "flv\x01";
   output_string oc (byte ((if audio then 4 else 0) + (if video then 1 else 0)));
   output_string oc (bits_of_int32 (Int32.of_int 9));
   oc, ref 0
@@ -34,11 +34,11 @@ let write_tag f tag timestamp data =
   output_string oc data
 
 let write_data f l =
-  let data = AMF.encode_list l in
+  let data = Amf.encode_list l in
   write_tag f 18 Int32.zero data
 
 let write_metadata f l =
-  let l = [AMF.String "onMetaData"; AMF.Map l] in
+  let l = [Amf.String "onMetaData"; Amf.Map l] in
   write_data f l
 
 let write_audio f timestamp data = write_tag f 8 timestamp data
@@ -63,7 +63,7 @@ let input_u32 ic =
 
 let open_in fname : in_t =
   let ic = open_in fname in
-  assert (really_input_string ic 3 = "FLV");
+  assert (really_input_string ic 3 = "flv");
   assert (input_byte ic = 0x01);
   ignore (input_byte ic);
   assert (input_u32 ic = Int32.of_int 9);
@@ -96,8 +96,8 @@ let read_tag (ic : in_t) =
       `Video data
     | 18 ->
       let data = really_input_string ic data_size in
-      let amf = AMF.decode data |> Array.of_list in
-      `Data (AMF.get_string amf.(0), amf.(1))
+      let amf = Amf.decode data |> Array.of_list in
+      `Data (Amf.get_string amf.(0), amf.(1))
     | _ -> assert false
   in
   (* Size of previous tag *)
