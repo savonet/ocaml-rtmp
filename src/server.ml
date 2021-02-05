@@ -22,8 +22,23 @@ let () =
         FLV.write_metadata dump m
       | `Data amf ->
         Printf.printf "data: %s\n%!" (AMF.list_to_string amf)
+      | `Command (tid, `Connect) ->
+        Printf.printf "Connecting...\n%!";
+        RTMP.window_acknowledgement_size cnx 500000;
+        RTMP.set_peer_bandwidth cnx 500000 `Dynamic;
+        RTMP.set_chunk_size cnx cnx.chunk_size;
+        RTMP.command cnx "_result" tid [AMF.Object ["fmsVer", AMF.String "FMS/3,0,1,123"; "capabilities", AMF.Number 31.]];
+      | `Command (tid, `Create_stream) ->
+        Printf.printf "Creating stream...\n%!";
+        (* TODO: increment counter *)
+        let stream_id = 0 in
+        RTMP.command cnx "_result" tid [AMF.Null; AMF.Number (float_of_int stream_id)];
+      | `Command (tid, `Publish (name, kind)) ->
+        RTMP.command cnx "onStatus" tid [AMF.Null; AMF.Object ["level", AMF.String "status"; "code", AMF.String "NetStream.Publish.Start"; "description", AMF.String ("Publishing stream " ^ name)]];
       | `Command (_, `Result amf) ->
         Printf.printf "result\n%!"
+      | `Command (_, `Unhandled (name, amf)) ->
+        Printf.printf "Unhandled command: %s\n%!" name
       | _ -> assert false
     in
     Printf.printf "Accepting connection!\n%!";
@@ -31,7 +46,7 @@ let () =
     (* Let's go. *)
     while true do
       RTMP.read_chunk cnx;
-      RTMP.handle_messages handler cnx
+      RTMP.handle_messages cnx handler
     done;
     Printf.printf "Done with connection\n%!";
     ignore (exit 0)

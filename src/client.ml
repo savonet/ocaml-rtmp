@@ -10,8 +10,8 @@ let () =
   Random.self_init ();
   let key = stream_key () in
   let url = "rtmp://a.rtmp.youtube.com:1935/live2" in
-  (* let server = "localhost" in *)
-  let server = "a.rtmp.youtube.com" in
+  let server = "localhost" in
+  (* let server = "a.rtmp.youtube.com" in *)
   let addr = Unix.gethostbyname server in
   let s = Unix.socket addr.Unix.h_addrtype Unix.SOCK_STREAM 0 in
   Printf.printf "Connecting to %s... %!" server;
@@ -32,9 +32,9 @@ let () =
       | `Audio _ -> assert false
       | `Video _ -> assert false
       | `Data _ -> assert false
-      | _ -> Printf.printf "unhandled message...\n%!"; assert false
+      | _ -> Printf.printf "unhandled message...\n%!"
     in
-    RTMP.handle_messages handler cnx
+    RTMP.handle_messages cnx handler
   in
   poll ();
   Printf.printf "Connecting.\n%!";
@@ -52,8 +52,8 @@ let () =
   let md = FLV.read_metadata flv in
   Printf.printf "set metadata to %s\n%!" (AMF.to_string md);
   RTMP.data cnx [AMF.String "@setDataFrame"; AMF.String "onMetaData"; md];
-  poll ();
   while true do
+    poll ();
     match FLV.read_tag flv with
     | `Audio data -> RTMP.audio cnx data
     | `Video data -> RTMP.video cnx data
