@@ -235,16 +235,16 @@ let handshake cnx =
 let read_chunk cnx =
   Printf.printf "\n%!";
   let add_message msg =
-    match msg.message_type_id with
-    | 0x01 ->
-      (* We need to handle this one ASAP because it has influence on how we read next messages... *)
-      let data = String.concat "" (List.rev msg.message_data) in
-      let n = int32_of_bits data in
-      Printf.printf "Got chunk size: %ld\n%!" n;
-      cnx.chunk_size <- Int32.to_int n
-    | _ ->
-      if msg.message_remaining = 0 then Queue.add msg cnx.messages
-      else cnx.partial_messages <- msg :: cnx.partial_messages
+    (
+      if msg.message_type_id = 0x01 then
+        (* We need to handle this one ASAP because it has influence on how we read next messages... *)
+        let data = String.concat "" (List.rev msg.message_data) in
+        let n = int32_of_bits data in
+        Printf.printf "Got chunk size: %ld\n%!" n;
+        cnx.chunk_size <- Int32.to_int n
+    );
+    if msg.message_remaining = 0 then Queue.add msg cnx.messages
+    else cnx.partial_messages <- msg :: cnx.partial_messages
   in
   let pop_message cid =
     let f, m = List.partition (fun msg -> msg.message_chunk_stream_id = cid) cnx.partial_messages in
@@ -390,12 +390,12 @@ let pop_message cnx =
   let data = String.concat "" (List.rev msg.message_data) in
   msg.message_timestamp, msg.message_stream_id,
   match msg.message_type_id with
-    (*
-    | 0x01 ->
-      let n = int32_of_bits data in
-      Printf.printf "Got chunk size: %ld\n%!" n;
-      cnx.chunk_size <- Int32.to_int n
-    *)
+  | 0x01 ->
+    let n = Int32.to_int (int32_of_bits data) in
+    `Set_chunk_size n
+  | 0x03 ->
+    let n = int32_of_bits data in
+    `Acknowledgement n
   | 0x05 ->
     let n = int32_of_bits data in
     Printf.printf "Got window ack: %ld\n%!" n;
@@ -439,6 +439,9 @@ let pop_message cnx =
         let name = AMF.get_string amf.(3) in
         let kind = AMF.get_string amf.(4) in
         `Command (tid, `Publish (name, kind))
+      | "onBWDone" ->
+        Printf.printf "onBWDone\n%!";
+        `Command (tid, `On_bandwidth_done)
       | "onStatus" ->
         Printf.printf "On status\n%!";
         `Command (tid, `On_status amf.(3))

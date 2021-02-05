@@ -27,9 +27,13 @@ let () =
   let handle_message ~timestamp ~stream = function
     | `Command (_, `On_status amf) -> Printf.printf "On status: %s\n%!" (AMF.to_string amf)
     | `Command (_, `Result amf) -> Printf.printf "Got result: %s\n%!" (AMF.list_to_string (Array.to_list amf))
+    | `Command (i, `On_bandwidth_done) -> Printf.printf "On bandwidth done\n%!"; RTMP.command cnx "_checkbw" i [AMF.Null]
+    | `Command (_, `Unhandled (name, amf)) -> Printf.printf "*** Unhandled command %s: %s\n%!" name (AMF.list_to_string (Array.to_list amf))
+    | `Set_chunk_size n -> RTMP.set_chunk_size cnx n
     | `Audio _ -> assert false
     | `Video _ -> assert false
     | `Data _ -> assert false
+    | `Acknowledgement n -> Printf.printf "Acknowledgement %ld\n%!" n
     | _ -> Printf.printf "unhandled message...\n%!"
   in
   let poll ?(result=false) () =
@@ -54,8 +58,12 @@ let () =
   while true do
     poll ();
     match FLV.read_tag flv with
-    | `Audio data -> RTMP.audio cnx data
-    | `Video data -> RTMP.video cnx data
+    | `Audio data ->
+      Printf.printf "Send audio: %d\n%!" (String.length data);
+      RTMP.audio cnx data
+    | `Video data ->
+      Printf.printf "Send video: %d\n%!" (String.length data);
+      RTMP.video cnx data
     | `Data _ -> assert false
   done
 
