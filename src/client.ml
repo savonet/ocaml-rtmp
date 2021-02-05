@@ -10,8 +10,8 @@ let () =
   Random.self_init ();
   let key = stream_key () in
   let url = "rtmp://a.rtmp.youtube.com:1935/live2" in
-  let server = "localhost" in
-  (* let server = "a.rtmp.youtube.com" in *)
+  (* let server = "localhost" in *)
+  let server = "a.rtmp.youtube.com" in
   let addr = Unix.gethostbyname server in
   let s = Unix.socket addr.Unix.h_addrtype Unix.SOCK_STREAM 0 in
   Printf.printf "Connecting to %s... %!" server;
@@ -24,17 +24,16 @@ let () =
     let n = ref 0 in
     fun () -> incr n; !n
   in
+  let handle_message ~timestamp ~stream = function
+    | `Command (_, `On_status amf) -> Printf.printf "On status: %s\n%!" (AMF.to_string amf)
+    | `Command (_, `Result amf) -> Printf.printf "Got result: %s\n%!" (AMF.list_to_string (Array.to_list amf))
+    | `Audio _ -> assert false
+    | `Video _ -> assert false
+    | `Data _ -> assert false
+    | _ -> Printf.printf "unhandled message...\n%!"
+  in
   let poll ?(result=false) () =
-    RTMP.read_chunks cnx;
-    let handler ~timestamp ~stream = function
-      | `Command (_, `On_status amf) -> Printf.printf "On status: %s\n%!" (AMF.to_string amf)
-      | `Command (_, `Result amf) -> Printf.printf "Got result: %s\n%!" (AMF.list_to_string (Array.to_list amf))
-      | `Audio _ -> assert false
-      | `Video _ -> assert false
-      | `Data _ -> assert false
-      | _ -> Printf.printf "unhandled message...\n%!"
-    in
-    RTMP.handle_messages cnx handler
+    RTMP.read_chunks ~handler:handle_message cnx
   in
   poll ();
   Printf.printf "Connecting.\n%!";

@@ -382,13 +382,6 @@ let read_chunk cnx =
     | _ -> failwith ("TODO: Handle chunk type " ^ string_of_int chunk_type)
   )
 
-(** Read as many chunks as available. *)
-let read_chunks cnx =
-  let s = cnx.socket in
-  while Unix.select [s] [] [] 0.1 <> ([], [], []) do
-    read_chunk cnx
-  done
-
 let has_message cnx =
   not (Queue.is_empty cnx.messages)
 
@@ -460,8 +453,19 @@ let pop_message cnx =
     )
   | t -> Printf.printf "\nUnhandled message type 0x%02x\n%!" t; assert false
 
+(** Pass all available messages to a function. *)
 let handle_messages cnx handler =
   while has_message cnx do
     let timestamp, stream, msg = pop_message cnx in
     handler ~timestamp ~stream msg
+  done
+
+(** Read as many chunks as available. *)
+let read_chunks ?handler cnx =
+  let s = cnx.socket in
+  while Unix.select [s] [] [] 0.1 <> ([], [], []) do
+    read_chunk cnx;
+    match handler with
+    | Some handler -> handle_messages cnx handler
+    | None -> ()
   done
