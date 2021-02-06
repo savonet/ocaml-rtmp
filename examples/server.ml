@@ -51,7 +51,7 @@ let () =
                 ];
             ]
       | `Command (_, `Result _) -> Printf.printf "result\n%!"
-      | `Set_chunk_size n -> ()
+      | `Set_chunk_size _ -> ()
       | `Command (_, `Unhandled (name, _)) ->
           Printf.printf "Unhandled command: %s\n%!" name
       | _ -> assert false
