@@ -1,27 +1,20 @@
-SOURCES = Amf.ml io.ml flv.ml rtmp.ml
-RESULT = rtmp
-PACKS = unix
+all:
+	@dune build
 
-all: dncl server client readflv
+c: all test.flv
+	@dune exec ./client.exe
 
-c: client test.flv
-	./client
+s: all
+	@dune exec ./server.exe
 
-s: server
-	./server
-
-r: readflv
-	./readflv
+r: all
+	@dune exec ./readflv.exe
 
 run: all
-	./server & $(MAKE) test
+	$(MAKE) s & $(MAKE) test
 
 self: all
-	./server & ./client
-
-# Build example files
-%: %.ml dncl
-	ocamlopt unix.cmxa rtmp.cmxa $< -o $@
+	$(MAKE) s & $(MAKE) c
 
 test:
 	# ffmpeg -f lavfi -i testsrc=duration=10:size=1280x720:rate=30 -f flv rtmp:///localhost/live2/secret-key
@@ -39,6 +32,5 @@ youtube:
 	ffmpeg -f lavfi -i testsrc=size=1280x720:rate=30 -f lavfi -i sine=frequency=440 -c:a pcm_s16le -f flv rtmp://a.rtmp.youtube.com/live2/$(shell cat stream-key)
 
 test.flv:
+	@echo "\n\nGENERATING $@...\n"
 	ffmpeg -f lavfi -i testsrc=duration=60:size=1280x720:rate=30 -f lavfi -i sine=frequency=440:duration=60 -c:a pcm_s16le -f flv $@
-
-include OCamlMakefile

@@ -7,3 +7,8 @@
  (name client)
  (modules client)
  (libraries rtmp))
+
+(executable
+ (name readflv)
+ (modules readflv)
+ (libraries rtmp))
