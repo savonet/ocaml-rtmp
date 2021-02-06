@@ -13,7 +13,7 @@ let pts (f : out_t) = snd f
 
 let open_out ?(audio = true) ?(video = true) fname : out_t =
   let oc = open_out fname in
-  output_string oc "flv\x01";
+  output_string oc "FLV\x01";
   output_string oc (byte ((if audio then 4 else 0) + if video then 1 else 0));
   output_string oc (bits_of_int32 (Int32.of_int 9));
   (oc, ref 0)
@@ -64,7 +64,7 @@ let input_u32 ic =
 
 let open_in fname : in_t =
   let ic = open_in fname in
-  assert (really_input_string ic 3 = "flv");
+  assert (really_input_string ic 3 = "FLV");
   assert (input_byte ic = 0x01);
   ignore (input_byte ic);
   assert (input_u32 ic = Int32.of_int 9);
