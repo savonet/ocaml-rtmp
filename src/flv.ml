@@ -11,23 +11,25 @@ let oc (f : out_t) = fst f
 (** Previous tag size. *)
 let pts (f : out_t) = snd f
 
-let open_out ?(audio=true) ?(video=true) fname : out_t =
+let open_out ?(audio = true) ?(video = true) fname : out_t =
   let oc = open_out fname in
   output_string oc "flv\x01";
-  output_string oc (byte ((if audio then 4 else 0) + (if video then 1 else 0)));
+  output_string oc (byte ((if audio then 4 else 0) + if video then 1 else 0));
   output_string oc (bits_of_int32 (Int32.of_int 9));
-  oc, ref 0
+  (oc, ref 0)
 
 let close_out f = close_out (oc f)
 
 let write_tag f tag timestamp data =
   let oc = oc f in
   let s = pts f in
-  output_string oc (bits_of_int32 (Int32.of_int !s)); (* size of previous tag *)
+  output_string oc (bits_of_int32 (Int32.of_int !s));
+  (* size of previous tag *)
   s := 11 + String.length data;
   output_string oc (byte tag);
   output_string oc (bits_of_int24 (String.length data));
-  output_string oc (bits_of_int24 (Int32.to_int timestamp)); (* timestamp *)
+  output_string oc (bits_of_int24 (Int32.to_int timestamp));
+  (* timestamp *)
   (* output_string oc "\0x00"; (\* higher bit of timestamp *\) *)
   (* output_string oc (bits_of_int24 0); (\* stream id, always 0 *\) *)
   output_string oc "\x00\x00\x00\x00";
@@ -42,7 +44,6 @@ let write_metadata f l =
   write_data f l
 
 let write_audio f timestamp data = write_tag f 8 timestamp data
-
 let write_video f timestamp data = write_tag f 9 timestamp data
 
 type in_t = in_channel
@@ -50,7 +51,7 @@ type in_t = in_channel
 let input_u24 ic =
   let ans = ref 0 in
   for _ = 0 to 2 do
-    ans := (!ans lsl 8) + (input_byte ic)
+    ans := (!ans lsl 8) + input_byte ic
   done;
   !ans
 
@@ -83,28 +84,32 @@ let read_tag (ic : in_t) =
   (* Printf.printf "size: %d\n%!" data_size; *)
   let timestamp = input_u24 ic in
   let timestamp_extended = input_byte ic in
-  let timestamp = Int32.add (Int32.shift_left (Int32.of_int timestamp_extended) 24) (Int32.of_int timestamp) in
+  let timestamp =
+    Int32.add
+      (Int32.shift_left (Int32.of_int timestamp_extended) 24)
+      (Int32.of_int timestamp)
+  in
   (* Stream id *)
   assert (input_u24 ic = 0);
   let ans =
     match tag_type with
-    | 8 ->
-      let data = really_input_string ic data_size in
-      `Audio data
-    | 9 ->
-      let data = really_input_string ic data_size in
-      `Video data
-    | 18 ->
-      let data = really_input_string ic data_size in
-      let amf = Amf.decode data |> Array.of_list in
-      `Data (Amf.get_string amf.(0), amf.(1))
-    | _ -> assert false
+      | 8 ->
+          let data = really_input_string ic data_size in
+          `Audio data
+      | 9 ->
+          let data = really_input_string ic data_size in
+          `Video data
+      | 18 ->
+          let data = really_input_string ic data_size in
+          let amf = Amf.decode data |> Array.of_list in
+          `Data (Amf.get_string amf.(0), amf.(1))
+      | _ -> assert false
   in
   (* Size of previous tag *)
   ignore (input_u32 ic);
-  timestamp, ans
+  (timestamp, ans)
 
 let read_metadata ic =
   match read_tag ic with
-  | _, `Data ("onMetaData", amf) -> amf
-  | _ -> assert false
+    | _, `Data ("onMetaData", amf) -> amf
+    | _ -> assert false

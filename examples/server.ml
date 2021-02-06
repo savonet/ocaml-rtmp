@@ -10,39 +10,50 @@ let () =
   Unix.listen socket 5;
   while true do
     Printf.printf "Waiting for client\n%!";
-    let s, caller = Unix.accept socket in
+    let s, _ = Unix.accept socket in
     let cnx = Rtmp.create_connection s in
-    let handler ~timestamp ~stream = function
-      | `Audio data ->
-        Flv.write_audio dump timestamp data
-      | `Video data ->
-        Flv.write_video dump timestamp data
-      | `Command (_, `Delete_stream _) ->
-        Flv.close_out dump
+    let handler ~timestamp ~stream:_ = function
+      | `Audio data -> Flv.write_audio dump timestamp data
+      | `Video data -> Flv.write_video dump timestamp data
+      | `Command (_, `Delete_stream _) -> Flv.close_out dump
       | `Data [Amf.String l; Amf.String "onMetaData"; Amf.Map m] ->
-        Printf.printf "matadata (%s): %s\n%!" l (Amf.to_string (Amf.Map m));
-        Flv.write_metadata dump m
-      | `Data amf ->
-        Printf.printf "data: %s\n%!" (Amf.list_to_string amf)
+          Printf.printf "matadata (%s): %s\n%!" l (Amf.to_string (Amf.Map m));
+          Flv.write_metadata dump m
+      | `Data amf -> Printf.printf "data: %s\n%!" (Amf.list_to_string amf)
       | `Command (tid, `Connect) ->
-        Printf.printf "Connecting...\n%!";
-        Rtmp.window_acknowledgement_size cnx 500000;
-        Rtmp.set_peer_bandwidth cnx 500000 `Dynamic;
-        Rtmp.set_chunk_size cnx cnx.chunk_size;
-        Rtmp.command cnx "_result" tid [Amf.Object ["fmsVer", Amf.String "FMS/3,0,1,123"; "capabilities", Amf.Number 31.]];
+          Printf.printf "Connecting...\n%!";
+          Rtmp.window_acknowledgement_size cnx 500000;
+          Rtmp.set_peer_bandwidth cnx 500000 `Dynamic;
+          Rtmp.set_chunk_size cnx cnx.chunk_size;
+          Rtmp.command cnx "_result" tid
+            [
+              Amf.Object
+                [
+                  ("fmsVer", Amf.String "FMS/3,0,1,123");
+                  ("capabilities", Amf.Number 31.);
+                ];
+            ]
       | `Command (tid, `Create_stream) ->
-        Printf.printf "Creating stream...\n%!";
-        (* TODO: increment counter *)
-        let stream_id = 0 in
-        Rtmp.command cnx "_result" tid [Amf.Null; Amf.Number (float_of_int stream_id)];
-      | `Command (tid, `Publish (name, kind)) ->
-        Rtmp.command cnx "onStatus" tid [Amf.Null; Amf.Object ["level", Amf.String "status"; "code", Amf.String "NetStream.Publish.Start"; "description", Amf.String ("Publishing stream " ^ name)]];
-      | `Command (_, `Result amf) ->
-        Printf.printf "result\n%!"
-      | `Set_chunk_size n ->
-        Rtmp.set_chunk_size cnx n
-      | `Command (_, `Unhandled (name, amf)) ->
-        Printf.printf "Unhandled command: %s\n%!" name
+          Printf.printf "Creating stream...\n%!";
+          (* TODO: increment counter *)
+          let stream_id = 0 in
+          Rtmp.command cnx "_result" tid
+            [Amf.Null; Amf.Number (float_of_int stream_id)]
+      | `Command (tid, `Publish (name, _)) ->
+          Rtmp.command cnx "onStatus" tid
+            [
+              Amf.Null;
+              Amf.Object
+                [
+                  ("level", Amf.String "status");
+                  ("code", Amf.String "NetStream.Publish.Start");
+                  ("description", Amf.String ("Publishing stream " ^ name));
+                ];
+            ]
+      | `Command (_, `Result _) -> Printf.printf "result\n%!"
+      | `Set_chunk_size n -> ()
+      | `Command (_, `Unhandled (name, _)) ->
+          Printf.printf "Unhandled command: %s\n%!" name
       | _ -> assert false
     in
     Printf.printf "Accepting connection!\n%!";

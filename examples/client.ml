@@ -24,13 +24,22 @@ let () =
   Printf.printf "Handshake done.\n%!";
   let transaction_id =
     let n = ref 0 in
-    fun () -> incr n; !n
+    fun () ->
+      incr n;
+      !n
   in
-  let handle_message ~timestamp ~stream = function
-    | `Command (_, `On_status amf) -> Printf.printf "On status: %s\n%!" (Amf.to_string amf)
-    | `Command (_, `Result amf) -> Printf.printf "Got result: %s\n%!" (Amf.list_to_string (Array.to_list amf))
-    | `Command (i, `On_bandwidth_done) -> Printf.printf "On bandwidth done\n%!"; Rtmp.command cnx "_checkbw" i [Amf.Null]
-    | `Command (_, `Unhandled (name, amf)) -> Printf.printf "*** Unhandled command %s: %s\n%!" name (Amf.list_to_string (Array.to_list amf))
+  let handle_message ~timestamp:_ ~stream:_ = function
+    | `Command (_, `On_status amf) ->
+        Printf.printf "On status: %s\n%!" (Amf.to_string amf)
+    | `Command (_, `Result amf) ->
+        Printf.printf "Got result: %s\n%!"
+          (Amf.list_to_string (Array.to_list amf))
+    | `Command (i, `On_bandwidth_done) ->
+        Printf.printf "On bandwidth done\n%!";
+        Rtmp.command cnx "_checkbw" i [Amf.Null]
+    | `Command (_, `Unhandled (name, amf)) ->
+        Printf.printf "*** Unhandled command %s: %s\n%!" name
+          (Amf.list_to_string (Array.to_list amf))
     | `Set_chunk_size n -> Rtmp.set_chunk_size cnx n
     | `Audio _ -> assert false
     | `Video _ -> assert false
@@ -38,20 +47,29 @@ let () =
     | `Acknowledgement n -> Printf.printf "Acknowledgement %ld\n%!" n
     | _ -> Printf.printf "unhandled message...\n%!"
   in
-  let poll ?(result=false) () =
-    Rtmp.read_chunks ~handler:handle_message cnx
-  in
+  let poll () = Rtmp.read_chunks ~handler:handle_message cnx in
   poll ();
   Printf.printf "Connecting.\n%!";
-  Rtmp.command cnx "connect" (transaction_id ()) [Amf.Object ["app", Amf.String "live2"; "type", Amf.String "nonprivate"; "flashVer", Amf.String "FMLE/3.0"; "tcUrl", Amf.String url]];
-  poll ~result:true ();
-  Rtmp.command cnx "releaseStream" (transaction_id ()) [Amf.Null; Amf.String key];
+  Rtmp.command cnx "connect" (transaction_id ())
+    [
+      Amf.Object
+        [
+          ("app", Amf.String "live2");
+          ("type", Amf.String "nonprivate");
+          ("flashVer", Amf.String "FMLE/3.0");
+          ("tcUrl", Amf.String url);
+        ];
+    ];
+  poll ();
+  Rtmp.command cnx "releaseStream" (transaction_id ())
+    [Amf.Null; Amf.String key];
   poll ();
   Rtmp.command cnx "FCPublish" (transaction_id ()) [Amf.Null; Amf.String key];
   poll ();
   Rtmp.command cnx "createStream" (transaction_id ()) [Amf.Null];
-  poll ~result:true ();
-  Rtmp.command cnx "publish" (transaction_id ()) [Amf.Null; Amf.String key; Amf.String "live"];
+  poll ();
+  Rtmp.command cnx "publish" (transaction_id ())
+    [Amf.Null; Amf.String key; Amf.String "live"];
   poll ();
   let flv = Flv.open_in "test.flv" in
   let md = Flv.read_metadata flv in
@@ -61,12 +79,11 @@ let () =
     poll ();
     Printf.printf "now: %ld\n%!" (Rtmp.now cnx);
     match Flv.read_tag flv with
-    | timestamp, `Audio data ->
-      Printf.printf "Send audio %ld: %d\n%!" timestamp (String.length data);
-      Rtmp.audio cnx ~timestamp data
-    | timestamp, `Video data ->
-      Printf.printf "Send video %ld: %d\n%!" timestamp (String.length data);
-      Rtmp.video cnx ~timestamp data
-    | _, `Data _ -> assert false
+      | timestamp, `Audio data ->
+          Printf.printf "Send audio %ld: %d\n%!" timestamp (String.length data);
+          Rtmp.audio cnx ~timestamp data
+      | timestamp, `Video data ->
+          Printf.printf "Send video %ld: %d\n%!" timestamp (String.length data);
+          Rtmp.video cnx ~timestamp data
+      | _, `Data _ -> assert false
   done
-

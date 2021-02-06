@@ -1,5 +1,5 @@
 (library
  (name rtmp)
  (public_name rtmp)
- (synopsis
-   "Native OCaml implementation of the RTMP protocol"))
+ (libraries unix)
+ (synopsis "Native OCaml implementation of the RTMP protocol"))

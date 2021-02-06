@@ -133,7 +133,7 @@ let int32_of_bits s =
   assert (String.length s = 4);
   let ans = ref Int32.zero in
   for i = 0 to 3 do
-    let n = Int32.of_int (int_of_char (s.[i])) in
+    let n = Int32.of_int (int_of_char s.[i]) in
     ans := Int32.add (Int32.shift_left !ans 8) n
   done;
   !ans
@@ -142,7 +142,7 @@ let int64_of_bits s =
   assert (String.length s = 8);
   let ans = ref Int64.zero in
   for i = 0 to 7 do
-    let n = Int64.of_int (int_of_char (s.[i])) in
+    let n = Int64.of_int (int_of_char s.[i]) in
     ans := Int64.add (Int64.shift_left !ans 8) n
   done;
   !ans

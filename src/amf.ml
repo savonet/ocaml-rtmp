@@ -1,13 +1,16 @@
 (** amf0 *)
 
-type t = Number of float | Bool of bool | String of string | Object of (string * t) list | Map of (string * t) list | Null
+type t =
+  | Number of float
+  | Bool of bool
+  | String of string
+  | Object of (string * t) list
+  | Map of (string * t) list
+  | Null
 
 let get_number = function Number x -> x | _ -> assert false
-
 let get_int v = int_of_float (get_number v)
-
 let int n = Number (float_of_int n)
-
 let get_string = function String s -> s | _ -> assert false
 
 (** String representation of a value (for debugging purposes). *)
@@ -16,11 +19,16 @@ let rec to_string = function
   | Bool b -> Printf.sprintf "%b" b
   | String s -> "\"" ^ s ^ "\""
   | Object l ->
-    let l = List.map (fun (l, v) -> l ^ ": " ^ to_string v) l |> String.concat ", " in
-    "{" ^ l ^ "}"
+      let l =
+        List.map (fun (l, v) -> l ^ ": " ^ to_string v) l |> String.concat ", "
+      in
+      "{" ^ l ^ "}"
   | Map l ->
-    let l = List.map (fun (l, v) -> l ^ " => " ^ to_string v) l |> String.concat ", " in
-    "{" ^ l ^ "}"
+      let l =
+        List.map (fun (l, v) -> l ^ " => " ^ to_string v) l
+        |> String.concat ", "
+      in
+      "{" ^ l ^ "}"
   | Null -> "null"
 
 let list_to_string l = String.concat ", " (List.map to_string l)
@@ -31,7 +39,8 @@ let rec encode data =
   let push s = ans := s :: !ans in
   let byte n =
     assert (0 <= n && n <= 0xff);
-    push (String.make 1 (char_of_int n)) in
+    push (String.make 1 (char_of_int n))
+  in
   let u16 n =
     assert (0 <= n && n <= 0xffff);
     byte (n lsr 8);
@@ -39,47 +48,59 @@ let rec encode data =
   in
   let u32 n =
     for i = 0 to 3 do
-      byte (Int32.to_int (Int32.logand (Int32.shift_right n ((3-i)*8)) (Int32.of_int 0xff)));
+      byte
+        (Int32.to_int
+           (Int32.logand
+              (Int32.shift_right n ((3 - i) * 8))
+              (Int32.of_int 0xff)))
     done
   in
   let u64 n =
     for i = 0 to 7 do
-      byte (Int64.to_int (Int64.logand (Int64.shift_right n ((7-i)*8)) (Int64.of_int 0xff)));
+      byte
+        (Int64.to_int
+           (Int64.logand
+              (Int64.shift_right n ((7 - i) * 8))
+              (Int64.of_int 0xff)))
     done
   in
   let string s =
     u16 (String.length s);
     push s
   in
-  (
-    match data with
+  (match data with
     | Number x ->
-      byte 0x00;
-      u64 (Int64.bits_of_float x)
+        byte 0x00;
+        u64 (Int64.bits_of_float x)
     | Bool b ->
-      byte 0x01;
-      byte (if b then 1 else 0)
+        byte 0x01;
+        byte (if b then 1 else 0)
     | String s ->
-      byte 0x02;
-      string s
+        byte 0x02;
+        string s
     | Object l ->
-      byte 0x03;
-      List.iter (fun (l,v) -> string l; push (encode v)) l;
-      string "";
-      byte 0x09
-    | Null ->
-      byte 0x05
+        byte 0x03;
+        List.iter
+          (fun (l, v) ->
+            string l;
+            push (encode v))
+          l;
+        string "";
+        byte 0x09
+    | Null -> byte 0x05
     | Map l ->
-      byte 0x08;
-      u32 (Int32.of_int (List.length l));
-      List.iter (fun (l,v) -> string l; push (encode v)) l;
-      string "";
-      byte 0x09
-  );
+        byte 0x08;
+        u32 (Int32.of_int (List.length l));
+        List.iter
+          (fun (l, v) ->
+            string l;
+            push (encode v))
+          l;
+        string "";
+        byte 0x09);
   String.concat "" (List.rev !ans)
 
-let encode_list data =
-  String.concat "" (List.map encode data)
+let encode_list data = String.concat "" (List.map encode data)
 
 (** Decode amf value. *)
 let decode data =
@@ -118,45 +139,44 @@ let decode data =
   let double () = Int64.float_of_bits (u64 ()) in
   let rec value () =
     match byte () with
-    | 0x00 ->
-      (* number *)
-      let n = double () in
-      Number n
-    | 0x01 ->
-      let n = byte () in
-      Bool (n <> 0)
-    | 0x02 ->
-      (* string *)
-      let s = string () in
-      String s
-    | 0x03 ->
-      (* object *)
-      let ans = ref [] in
-      (* Printf.printf "object: %s\n%!" (string ()); *)
-      let l = ref (string ()) in
-      while !l <> "" do
-        let v = value () in
-        ans := (!l, v) :: !ans;
-        l := string ()
-      done;
-      assert (byte () = 0x09);
-      Object (List.rev !ans)
-    | 0x05 ->
-      Null
-    | 0x08 ->
-      let n = Int32.to_int (u32 ()) in
-      let l =
-        List.init n (fun _ ->
-            let s = string () in
+      | 0x00 ->
+          (* number *)
+          let n = double () in
+          Number n
+      | 0x01 ->
+          let n = byte () in
+          Bool (n <> 0)
+      | 0x02 ->
+          (* string *)
+          let s = string () in
+          String s
+      | 0x03 ->
+          (* object *)
+          let ans = ref [] in
+          (* Printf.printf "object: %s\n%!" (string ()); *)
+          let l = ref (string ()) in
+          while !l <> "" do
             let v = value () in
-            s, v)
-      in
-      assert (string () = "");
-      assert (byte () = 0x09);
-      Map l
-    | b ->
-      Printf.printf "***** Unknown amf 0x%02x\n%!" b;
-      assert false
+            ans := (!l, v) :: !ans;
+            l := string ()
+          done;
+          assert (byte () = 0x09);
+          Object (List.rev !ans)
+      | 0x05 -> Null
+      | 0x08 ->
+          let n = Int32.to_int (u32 ()) in
+          let l =
+            List.init n (fun _ ->
+                let s = string () in
+                let v = value () in
+                (s, v))
+          in
+          assert (string () = "");
+          assert (byte () = 0x09);
+          Map l
+      | b ->
+          Printf.printf "***** Unknown amf 0x%02x\n%!" b;
+          assert false
   in
   let ans = ref [] in
   while !i <> n do
@@ -166,8 +186,8 @@ let decode data =
 
 (* TODO: move tests away *)
 let () =
-  let test amf = assert ((List.hd (decode (encode amf))) = amf) in
+  let test amf = assert (List.hd (decode (encode amf)) = amf) in
   test (String "a");
   test (Number 12.);
   test (Bool true);
-  test (Map ["a", String "A"; "b", Number 5.])
+  test (Map [("a", String "A"); ("b", Number 5.)])
