@@ -76,16 +76,30 @@ let chunk_header3 f ~chunk_stream_id =
 
 (** High-level functions. *)
 
-(** A (partially received) message. *)
-type message = {
-  message_chunk_stream_id : int;
-  message_timestamp : Int32.t;
-  message_type_id : int;
-  message_stream_id : Int32.t;
-  message_data : string list;
-  (* Data in chunks, to be read from right to left (i.e. rev before concatenating). *)
-  message_remaining : int; (* Bytes which remain to be fetched *)
-}
+module Message = struct
+  (** A (partially received) message. *)
+  type t = {
+    chunk_stream_id : int;
+    timestamp : Int32.t;
+    type_id : int;
+    stream_id : Int32.t;
+    data : string list;
+    (* Data in chunks, to be read from right to left (i.e. rev before concatenating). *)
+    remaining : int; (* Bytes which remain to be fetched *)
+  }
+
+  let chunk_stream_id m = m.chunk_stream_id
+
+  let type_id m = m.type_id
+
+  let remaining m = m.remaining
+
+  let is_partial m = remaining m <> 0
+
+  let data m =
+    assert (m.remaining = 0);
+    String.concat "" (List.rev m.data)
+end
 
 module IMap = Map.Make (struct
   type t = int
@@ -103,9 +117,9 @@ type connection = {
   mutable last_message_length : int IMap.t;
   mutable last_message_stream_id : Int32.t IMap.t;
   mutable last_message_type_id : int IMap.t;
-  mutable partial_messages : message list;
+  mutable partial_messages : Message.t list;
   (* messages partially recieved *)
-  messages : message Queue.t; (* messages recieved *)
+  messages : Message.t Queue.t; (* messages recieved *)
 }
 
 (** Create a connection. *)
@@ -255,19 +269,19 @@ let handshake cnx =
 let read_chunk cnx =
   Printf.printf "\n%!";
   let add_message msg =
-    if msg.message_type_id = 0x01 then (
+    if Message.type_id msg = 0x01 then (
       (* We need to handle this one ASAP because it has influence on how we read next messages... *)
-      let data = String.concat "" (List.rev msg.message_data) in
+      let data = Message.data msg in
       let n = int32_of_bits data in
       Printf.printf "Got chunk size: %ld\n%!" n;
       cnx.chunk_size <- Int32.to_int n);
-    if msg.message_remaining = 0 then Queue.add msg cnx.messages
-    else cnx.partial_messages <- msg :: cnx.partial_messages
+    if Message.is_partial msg then cnx.partial_messages <- msg :: cnx.partial_messages
+    else Queue.add msg cnx.messages
   in
   let pop_message cid =
     let f, m =
       List.partition
-        (fun msg -> msg.message_chunk_stream_id = cid)
+        (fun msg -> Message.chunk_stream_id msg = cid)
         cnx.partial_messages
     in
     if List.length f = 0 then raise Not_found;
@@ -277,7 +291,7 @@ let read_chunk cnx =
   in
   let have_message cid =
     List.exists
-      (fun msg -> msg.message_chunk_stream_id = cid)
+      (fun msg -> Message.chunk_stream_id msg = cid)
       cnx.partial_messages
   in
   let s = cnx.socket in
@@ -297,8 +311,8 @@ let read_chunk cnx =
     | 0 ->
         let timestamp = read_int24 s in
         let message_length = read_int24 s in
-        let message_type_id = read_byte s in
-        let message_stream_id = read_int32_le s in
+        let type_id = read_byte s in
+        let stream_id = read_int32_le s in
         let timestamp =
           if timestamp = 0xffffff then read_int32 s else Int32.of_int timestamp
         in
@@ -307,39 +321,40 @@ let read_chunk cnx =
         cnx.last_message_length <-
           IMap.add chunk_stream_id message_length cnx.last_message_length;
         cnx.last_message_stream_id <-
-          IMap.add chunk_stream_id message_stream_id cnx.last_message_stream_id;
+          IMap.add chunk_stream_id stream_id cnx.last_message_stream_id;
         cnx.last_message_type_id <-
-          IMap.add chunk_stream_id message_type_id cnx.last_message_type_id;
+          IMap.add chunk_stream_id type_id cnx.last_message_type_id;
         Printf.printf "Timestamp: %ld\n%!" timestamp;
         Printf.printf "Message length: %d\n%!" message_length;
-        Printf.printf "Message type: %d (0x%x)\n%!" message_type_id
-          message_type_id;
-        Printf.printf "Message stream: %ld\n%!" message_stream_id;
+        Printf.printf "Message type: %d (0x%x)\n%!" type_id
+          type_id;
+        Printf.printf "Message stream: %ld\n%!" stream_id;
         let data_length = min cnx.chunk_size message_length in
         let data = read_string s data_length in
         let msg =
           {
-            message_chunk_stream_id = chunk_stream_id;
-            message_timestamp = timestamp;
-            message_type_id;
-            message_stream_id;
-            message_data = [data];
-            message_remaining = message_length - data_length;
+            Message.
+            chunk_stream_id;
+            timestamp;
+            type_id;
+            stream_id;
+            data = [data];
+            remaining = message_length - data_length;
           }
         in
         add_message msg
     | 1 ->
         let timestamp_delta = read_int24 s in
         let message_length = read_int24 s in
-        let message_type_id = read_byte s in
+        let type_id = read_byte s in
         let timestamp_delta =
           if timestamp_delta = 0xffffff then read_int32 s
           else Int32.of_int timestamp_delta
         in
         Printf.printf "Timestamp delta: %ld\n%!" timestamp_delta;
         Printf.printf "Message length: %d\n%!" message_length;
-        Printf.printf "Message type: %d (0x%x)\n%!" message_type_id
-          message_type_id;
+        Printf.printf "Message type: %d (0x%x)\n%!" type_id
+          type_id;
         let timestamp = IMap.find chunk_stream_id cnx.last_timestamp in
         let timestamp = Int32.add timestamp timestamp_delta in
         cnx.last_timestamp <-
@@ -347,18 +362,18 @@ let read_chunk cnx =
         cnx.last_message_length <-
           IMap.add chunk_stream_id message_length cnx.last_message_length;
         cnx.last_message_type_id <-
-          IMap.add chunk_stream_id message_type_id cnx.last_message_type_id;
+          IMap.add chunk_stream_id type_id cnx.last_message_type_id;
         let data_length = min cnx.chunk_size message_length in
         let data = read_string s data_length in
         let msg =
           {
-            message_chunk_stream_id = chunk_stream_id;
-            message_timestamp = timestamp;
-            message_type_id;
-            message_stream_id =
-              IMap.find chunk_stream_id cnx.last_message_stream_id;
-            message_data = [data];
-            message_remaining = message_length - data_length;
+            Message.
+            chunk_stream_id;
+            timestamp;
+            type_id;
+            stream_id = IMap.find chunk_stream_id cnx.last_message_stream_id;
+            data = [data];
+            remaining = message_length - data_length;
           }
         in
         add_message msg
@@ -373,7 +388,7 @@ let read_chunk cnx =
         cnx.last_timestamp <-
           IMap.add chunk_stream_id timestamp cnx.last_timestamp;
         Printf.printf "Timestamp delta: %ld\n%!" timestamp_delta;
-        let message_type_id =
+        let type_id =
           IMap.find chunk_stream_id cnx.last_message_type_id
         in
         let message_length =
@@ -384,34 +399,34 @@ let read_chunk cnx =
         let data = read_string s data_length in
         let msg =
           {
-            message_chunk_stream_id = chunk_stream_id;
-            message_timestamp = timestamp;
-            message_type_id;
-            message_stream_id =
+            Message.
+            chunk_stream_id = chunk_stream_id;
+            timestamp = timestamp;
+            type_id;
+            stream_id =
               IMap.find chunk_stream_id cnx.last_message_stream_id;
-            message_data = [data];
-            message_remaining = message_length - data_length;
+            data = [data];
+            remaining = message_length - data_length;
           }
         in
         add_message msg
     | 3 ->
         if have_message chunk_stream_id then (
           let msg = pop_message chunk_stream_id in
-          let remaining = msg.message_remaining in
+          let remaining = Message.remaining msg in
           let data_length = min cnx.chunk_size remaining in
           Printf.printf "read %d\n%!" data_length;
           let data = read_string s data_length in
           add_message
             {
               msg with
-              message_data = data :: msg.message_data;
-              message_remaining = msg.message_remaining - data_length;
+              data = data :: msg.Message.data;
+              remaining = remaining - data_length;
             })
         else (
           let timestamp = IMap.find chunk_stream_id cnx.last_timestamp in
           (* TODO: do we increment automatically? *)
-          let message_type_id =
-            IMap.find chunk_stream_id cnx.last_message_type_id
+          let type_id = IMap.find chunk_stream_id cnx.last_message_type_id
           in
           let message_length =
             IMap.find chunk_stream_id cnx.last_message_length
@@ -420,13 +435,13 @@ let read_chunk cnx =
           let data = read_string s data_length in
           let msg =
             {
-              message_chunk_stream_id = chunk_stream_id;
-              message_timestamp = timestamp;
-              message_type_id;
-              message_stream_id =
-                IMap.find chunk_stream_id cnx.last_message_stream_id;
-              message_data = [data];
-              message_remaining = message_length - data_length;
+              Message.
+              chunk_stream_id;
+              timestamp;
+              type_id;
+              stream_id = IMap.find chunk_stream_id cnx.last_message_stream_id;
+              data = [data];
+              remaining = message_length - data_length;
             }
           in
           Printf.printf "No message found, creating a new one\n%!";
@@ -437,10 +452,10 @@ let has_message cnx = not (Queue.is_empty cnx.messages)
 
 let pop_message cnx =
   let msg = Queue.pop cnx.messages in
-  let data = String.concat "" (List.rev msg.message_data) in
-  ( msg.message_timestamp,
-    msg.message_stream_id,
-    match msg.message_type_id with
+  let data = Message.data msg in
+  ( msg.Message.timestamp,
+    msg.Message.stream_id,
+    match msg.Message.type_id with
       | 0x01 ->
           let n = Int32.to_int (int32_of_bits data) in
           `Set_chunk_size n
