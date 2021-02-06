@@ -3,7 +3,7 @@
 (name rtmp)
 (source (github savonet/ocaml-rtmp))
 (license LGPL-2.1)
-(authors "Romain Beauxis <toots@rastageeks.org>")
+(authors "Samuel Mimram <samuel.mimram@ens-lyon.org>")
 (maintainers "The Savonet Team <savonet-users@lists.sourceforge.net>")
 
 (generate_opam_files true)
