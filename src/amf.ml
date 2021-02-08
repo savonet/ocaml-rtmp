@@ -184,11 +184,3 @@ let decode data =
     ans := value () :: !ans
   done;
   List.rev !ans
-
-(* TODO: move tests away *)
-let () =
-  let test amf = assert (List.hd (decode (encode amf)) = amf) in
-  test (String "a");
-  test (Number 12.);
-  test (Bool true);
-  test (Map [("a", String "A"); ("b", Number 5.)])
