@@ -7,7 +7,7 @@ c: all test.flv
 s: all
 	@dune exec ./server.exe
 
-r: all
+r: all test.flv
 	@dune exec ./readflv.exe
 
 run: all

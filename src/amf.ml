@@ -1,4 +1,4 @@
-(** amf0 *)
+(** AMF0 *)
 
 type t =
   | Number of float
@@ -12,6 +12,7 @@ let get_number = function Number x -> x | _ -> assert false
 let get_int v = int_of_float (get_number v)
 let int n = Number (float_of_int n)
 let get_string = function String s -> s | _ -> assert false
+let get_map = function Map m -> m | _ -> assert false
 
 (** String representation of a value (for debugging purposes). *)
 let rec to_string = function
