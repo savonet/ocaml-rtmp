@@ -1,4 +1,4 @@
-OCaml Rtmp library
+OCaml RTMP library
 ==================
 
 This library is a native [OCaml](https://ocaml.org/) implementation of the [RTMP
