@@ -1,19 +1,19 @@
 all:
 	@dune build
 
-c: all test.flv
+c: test.flv
 	@dune exec ./client.exe
 
-s: all
+s:
 	@dune exec ./server.exe
 
-r: all test.flv
+r: test.flv
 	@dune exec ./readflv.exe
 
-run: all
+run:
 	$(MAKE) s & $(MAKE) test
 
-self: all
+self:
 	$(MAKE) s & $(MAKE) c
 
 test:
