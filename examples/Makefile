@@ -5,7 +5,7 @@ c: test.flv
 	@dune exec ./client.exe
 
 s:
-	@dune exec ./server.exe
+	@dune exec ./server.exe -- --once
 
 r: test.flv
 	@dune exec ./readflv.exe

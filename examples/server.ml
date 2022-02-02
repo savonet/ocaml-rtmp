@@ -3,6 +3,11 @@
 open Rtmp
 
 let () =
+  let once = ref false in
+  Arg.parse
+    ["--once", Arg.Set once, "Only accept one client and then exit."]
+    (fun _ -> ())
+    "server [options]";
   let dump = Flv.open_out "dump.flv" in
   let socket = Unix.socket Unix.PF_INET Unix.SOCK_STREAM 0 in
   Unix.setsockopt socket Unix.SO_REUSEADDR true;
@@ -59,10 +64,12 @@ let () =
     Printf.printf "Accepting connection!\n%!";
     Rtmp.handshake cnx;
     (* Let's go. *)
-    while true do
-      Rtmp.read_chunk cnx;
-      Rtmp.handle_messages cnx handler
-    done;
-    Printf.printf "Done with connection\n%!";
-    ignore (exit 0)
+    try
+      while true do
+        Rtmp.read_chunk cnx;
+        Rtmp.handle_messages cnx handler
+      done;
+    with Rtmp.Connection_closed ->
+      Printf.printf "Done with connection\n%!";
+      if !once then exit 0;
   done
