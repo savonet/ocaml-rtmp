@@ -12,3 +12,13 @@
  (name readflv)
  (modules readflv)
  (libraries rtmp))
+
+(test
+ (name test)
+ (modules test)
+ (libraries rtmp))
+
+(rule
+ (alias runtest)
+ (action
+  (run ./test.exe)))
