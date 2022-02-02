@@ -9,7 +9,8 @@ jobs:
     steps:
     - uses: actions/checkout@v2
     - uses: avsm/setup-ocaml@master
-    - run: opam pin add -n .
+    - name: Initialize opam
+      run: opam pin add -n .
     - name: Install dependencies and build
       run: opam depext -yti rtmp
     - name: Install additional programs
