@@ -11,7 +11,7 @@ r: test.flv
 	@dune exec ./readflv.exe
 
 run:
-	$(MAKE) s & $(MAKE) test
+	$(MAKE) s & (sleep 1; $(MAKE) test)
 
 self:
 	$(MAKE) s & $(MAKE) c
