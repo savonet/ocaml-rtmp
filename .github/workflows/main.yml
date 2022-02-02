@@ -14,11 +14,10 @@ jobs:
     - name: Install dependencies and build
       run: opam depext -yti rtmp
     - name: Install additional programs
-      run: |
-        opam install -y dune
-        sudo apt-get install -y ffmpeg
+      run: sudo apt-get install -y ffmpeg
     - name: Run tests
       run: |
+        eval $(opam config env)
         dune runtest
         cd examples
         make run
